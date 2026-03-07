@@ -1,0 +1,223 @@
+/* DashboardData.module.css */
+.loadingArea {
+    display: contents;
+}
+
+.skeletonCard {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    height: 200px;
+    animation: pulse 1.5s infinite;
+    background-size: 200% 100%;
+    background-image: linear-gradient(90deg, var(--glass-bg) 25%, var(--glass-border) 50%, var(--glass-bg) 75%);
+}
+
+.card {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.balanceSummary {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 24px;
+    flex: 1;
+    justify-content: center;
+}
+
+.summaryRow {
+    display: flex;
+    justify-content: space-between;
+    font-size: 1.15rem;
+    font-weight: 500;
+}
+
+.totalRow {
+    border-top: 1px solid var(--glass-border);
+    padding-top: 12px;
+    margin-top: 4px;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.successText {
+    color: var(--success-color);
+}
+
+.dangerText {
+    color: var(--danger-color);
+}
+
+.trend {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.colSpan2 {
+    grid-column: span 2;
+}
+
+.colSpanFull {
+    grid-column: 1 / -1;
+}
+
+.colStart1 {
+    grid-column-start: 1;
+}
+
+.chartArea {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 250px;
+    position: relative;
+}
+
+/* Reused standard classes for transactions */
+.txList {
+    list-style: none;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.txItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    transition: transform 0.2s;
+}
+
+.txItem:hover {
+    transform: translateX(4px);
+}
+
+.txInfo {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.txIcon {
+    font-size: 1.5rem;
+    background: var(--bg-color);
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+}
+
+.txTitle {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.txDate {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.txAmount {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+@keyframes pulse {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+@media (max-width: 900px) {
+
+    .colSpan2,
+    .colStart1 {
+        grid-column: 1 / -1;
+    }
+}
+
+.lineChartArea {
+    flex: 1;
+    min-height: 250px;
+    width: 100%;
+    position: relative;
+    padding-top: 16px;
+}
+
+.headerWithTabs {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.tabs {
+    display: flex;
+    gap: 8px;
+    background: var(--bg-color);
+    padding: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+}
+
+.tabBtn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.activeTab {
+    background: var(--glass-bg);
+    color: var(--text-main);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.miniSelect {
+    background: var(--bg-color);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    outline: none;
+}
+
+.loadMoreBtn {
+    margin-top: 16px;
+    width: 100%;
+    padding: 12px;
+    background: var(--bg-color);
+    border: 1px dashed var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-main);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.loadMoreBtn:hover {
+    background: var(--glass-border);
+}

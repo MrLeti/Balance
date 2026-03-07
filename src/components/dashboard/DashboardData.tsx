@@ -1,0 +1,540 @@
+"use client";
+
+import { useEffect, useState, useMemo } from "react";
+import styles from "./DashboardData.module.css";
+import {
+    Chart as ChartJS,
+    ArcElement,
+    Tooltip,
+    Legend,
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    Title,
+    Filler
+} from 'chart.js';
+import { Pie, Line } from 'react-chartjs-2';
+
+ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler);
+
+// Defensa: Parseo seguro de fechas para evitar la creación de objetos Invalid Date (NaN) que bloquean los sorts de React
+const parseArgentineDate = (dateStr: unknown) => {
+    if (!dateStr || typeof dateStr !== 'string') return 0;
+    const parts = dateStr.split('/');
+    if (parts.length < 3) return 0; // Fallback si Gemini alucinó un formato distinto
+
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const year = parseInt(parts[2], 10);
+
+    if (isNaN(day) || isNaN(month) || isNaN(year)) return 0;
+    return new Date(year, month, day).getTime();
+};
+
+const SUBCATEGORY_EMOJIS: Record<string, string> = {
+    // Comunes
+    "Mercadería": "🛒", "Limpieza": "🧹", "Cuidado personal": "🧼", "Delivery": "🛵", "Otros comunes": "🛍️",
+    // Habitacionales
+    "Alquiler": "🏠", "Expensas": "🏢", "Impuestos": "🏛️", "Energía": "⚡", "Gas": "🔥", "Internet": "🌐", "Teléfono": "📱", "Suscripciones": "📺", "Otros habit.": "🏡",
+    // Puntuales
+    "Equip. Para el hogar": "🛋️", "Transporte": "🚌", "Ropa": "👕", "Bicicleta": "🚲", "Otros puntuales": "📦",
+    // Ocio
+    "Juegos": "🎮", "Libros": "📚", "Salida": "🥂", "Otros ocio": "🎭",
+    // Ingresos
+    "Blanco": "💼", "Negro": "💵", "Aguinaldo B": "🎁", "Aguinaldo N": "🎁", "Vacaciones B": "🏖️", "Vacaciones N": "🏖️",
+    // Extras
+    "Intereses": "📈", "Otros ingresos": "💰", "Dividendos": "📊", "Trabajos": "🛠️",
+};
+
+export default function DashboardData() {
+    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<(string | number)[][]>([]);
+    const [txLimit, setTxLimit] = useState(10);
+    const [pieFilter, setPieFilter] = useState<"Egreso" | "Ingreso">("Egreso");
+    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+    const [lineFilter, setLineFilter] = useState<"Comparativo" | "Balance" | "Categorias">("Comparativo");
+    const [balanceMonth, setBalanceMonth] = useState<string>("Total");
+    const [themeTrigger, setThemeTrigger] = useState(0);
+
+    useEffect(() => {
+        const observer = new MutationObserver(() => setThemeTrigger(prev => prev + 1));
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const handleMq = () => setThemeTrigger(prev => prev + 1);
+        mediaQuery.addEventListener('change', handleMq);
+
+        return () => {
+            observer.disconnect();
+            mediaQuery.removeEventListener('change', handleMq);
+        };
+    }, []);
+
+    const isDark = typeof document !== 'undefined'
+        ? document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        : false;
+
+    const chartTextColor = isDark ? '#e2e8f0' : '#475569';
+    const chartGridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
+
+    useEffect(() => {
+        fetchData();
+
+        const handleReload = () => {
+            fetchDataSilent();
+        };
+        window.addEventListener("transaction_added", handleReload);
+        return () => window.removeEventListener("transaction_added", handleReload);
+    }, []);
+
+    const fetchData = async () => {
+        try {
+            const res = await fetch("/api/dashboard");
+            if (!res.ok) throw new Error("Error fetching");
+            const json = await res.json();
+            const sortedData = (json.data || []).sort((a: string[], b: string[]) => {
+                return parseArgentineDate(a[1]) - parseArgentineDate(b[1]);
+            });
+            setData(sortedData);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchDataSilent = async () => {
+        try {
+            const res = await fetch("/api/dashboard");
+            if (res.ok) {
+                const json = await res.json();
+                const sortedData = (json.data || []).sort((a: string[], b: string[]) => {
+                    return parseArgentineDate(a[1]) - parseArgentineDate(b[1]);
+                });
+                setData(sortedData);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const availableMonths = useMemo(() => {
+        const months = new Set<string>();
+        data.forEach(row => {
+            if (row.length > 1) {
+                const dateStr = row[1];
+                if (dateStr && typeof dateStr === 'string') {
+                    const parts = dateStr.split("/");
+                    if (parts.length >= 3) {
+                        months.add(`${parts[1]}/${parts[2]}`);
+                    }
+                }
+            }
+        });
+        return Array.from(months).sort((a, b) => {
+            const [mA, yA] = a.split("/");
+            const [mB, yB] = b.split("/");
+
+            // Verificación segura IsNaN de los periodos
+            const numYA = parseInt(yA, 10) || 0;
+            const numYB = parseInt(yB, 10) || 0;
+            if (numYA !== numYB) return numYB - numYA;
+
+            const numMA = parseInt(mA, 10) || 0;
+            const numMB = parseInt(mB, 10) || 0;
+            return numMB - numMA;
+        });
+    }, [data]);
+
+    const { balance, ingresos, egresos } = useMemo(() => {
+        let b = 0; let i = 0; let e = 0;
+        data.forEach(row => {
+            if (row.length < 6) return;
+            const dateStr = row[1];
+            const type = row[2];
+
+            if (balanceMonth !== "Total" && typeof dateStr === 'string') {
+                const parts = dateStr.split("/");
+                if (parts.length >= 3) {
+                    const monthYear = `${parts[1]}/${parts[2]}`;
+                    if (monthYear !== balanceMonth) return;
+                }
+            }
+
+            const amountRaw = String(row[5]);
+            const cleanAmountStr = amountRaw.replace(/[^\d.,-]/g, '');
+            const val = parseFloat(cleanAmountStr.replace(/\./g, '').replace(',', '.')) || 0;
+            if (type === "Ingreso") { i += val; b += val; }
+            if (type === "Egreso") { e += val; b -= val; }
+        });
+        return { balance: b, ingresos: i, egresos: e };
+    }, [data, balanceMonth]);
+
+    const pieData = useMemo(() => {
+        const itemTotals: Record<string, number> = {};
+        data.forEach(row => {
+            if (row.length < 6) return;
+            const type = row[2];
+            if (type !== pieFilter) return;
+
+            const category = String(row[3]);
+            const subCategory = String(row[4]);
+
+            if (selectedCategory && category !== selectedCategory) return;
+
+            const labelKey = selectedCategory ? subCategory : category;
+            const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+
+            if (!itemTotals[labelKey]) itemTotals[labelKey] = 0;
+            itemTotals[labelKey] += val;
+        });
+
+        return {
+            labels: Object.keys(itemTotals),
+            datasets: [{
+                data: Object.values(itemTotals),
+                backgroundColor: [
+                    '#5E82D5', '#98B3E1', '#ECAEA9', '#E0726B',
+                    '#7BBD9F', '#B3E1C5', '#F5D38A', '#F1AD5C'
+                ],
+                borderColor: isDark ? 'rgba(30, 41, 59, 1)' : 'rgba(255, 255, 255, 1)',
+                borderWidth: 2,
+            }]
+        };
+    }, [data, pieFilter, selectedCategory, isDark]);
+
+    const lineData = useMemo(() => {
+        const dailyData: Record<string, { ingreso: number, egreso: number, balanceDay: number, categories: Record<string, number> }> = {};
+        let runningBalance = 0;
+
+        // Color mapper for categorical charts
+        const catColors = ['#5E82D5', '#E0726B', '#7BBD9F', '#F1AD5C', '#8B5CF6', '#10B981', '#EC4899'];
+        const allCategoriesEncountered = new Set<string>();
+
+        data.forEach(row => {
+            if (row.length < 6) return;
+            const dateStr = String(row[1]);
+            const type = row[2];
+            const category = String(row[3]);
+            const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+
+            if (!dailyData[dateStr]) dailyData[dateStr] = { ingreso: 0, egreso: 0, balanceDay: 0, categories: {} };
+
+            if (type === "Ingreso") {
+                dailyData[dateStr].ingreso += val;
+                runningBalance += val;
+            } else if (type === "Egreso") {
+                dailyData[dateStr].egreso += val;
+                runningBalance -= val;
+
+                if (!dailyData[dateStr].categories[category]) dailyData[dateStr].categories[category] = 0;
+                dailyData[dateStr].categories[category] += val;
+                allCategoriesEncountered.add(category);
+            }
+            dailyData[dateStr].balanceDay = runningBalance;
+        });
+
+        const labels = Object.keys(dailyData);
+        const datasets = [];
+
+        if (lineFilter === "Comparativo") {
+            datasets.push({
+                label: "Ingresos",
+                data: labels.map(l => dailyData[l].ingreso),
+                borderColor: '#22c55e',
+                backgroundColor: '#22c55e',
+                tension: 0.3
+            });
+            datasets.push({
+                label: "Egresos Totales",
+                data: labels.map(l => dailyData[l].egreso),
+                borderColor: '#ef4444',
+                backgroundColor: '#ef4444',
+                tension: 0.3
+            });
+        } else if (lineFilter === "Categorias") {
+            // Create a dataset for each category found
+            Array.from(allCategoriesEncountered).forEach((cat, idx) => {
+                datasets.push({
+                    label: cat,
+                    data: labels.map(l => dailyData[l].categories[cat] || 0),
+                    borderColor: catColors[idx % catColors.length],
+                    backgroundColor: catColors[idx % catColors.length],
+                    tension: 0.3
+                });
+            });
+        } else {
+            datasets.push({
+                label: "Balance Acumulado",
+                data: labels.map(l => dailyData[l].balanceDay),
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                tension: 0.3,
+                fill: true,
+            });
+        }
+
+        return { labels, datasets };
+    }, [data, lineFilter]);
+
+    const recentTx = useMemo(() => {
+        const reversed = [...data].reverse();
+        return reversed.slice(0, txLimit);
+    }, [data, txLimit]);
+
+    const handleDelete = async (tx: (string | number)[]) => {
+        if (!window.confirm("¿Seguro que querés eliminar este movimiento?")) return;
+
+        try {
+            const res = await fetch("/api/transactions", {
+                method: "DELETE",
+                body: JSON.stringify({ id: tx[0] }),
+                headers: { "Content-Type": "application/json" }
+            });
+            if (res.ok) {
+                fetchDataSilent();
+                window.dispatchEvent(new Event("transaction_added")); // Reuses the same event to reload
+            } else {
+                alert("Error al borrar el movimiento.");
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    if (loading) {
+        return (
+            <div className={styles.loadingArea}>
+                <div className={styles.skeletonCard}></div>
+                <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
+                <div className={styles.skeletonCard}></div>
+                <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
+            </div>
+        );
+    }
+
+    const fmt = (val: number) => new Intl.NumberFormat('es-AR', {
+        style: 'currency',
+        currency: 'ARS',
+    }).format(val);
+
+    return (
+        <>
+            {/* Gráfico Torta */}
+            <section className={`glass-panel ${styles.card}`}>
+                <div className={styles.headerWithTabs}>
+                    <h3 className="text-muted">Desglose {selectedCategory ? `> ${selectedCategory}` : ""}</h3>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                        {selectedCategory && (
+                            <button
+                                className={styles.addBtn}
+                                onClick={() => setSelectedCategory(null)}
+                                style={{ padding: "4px 12px", fontSize: "0.85rem" }}
+                            >
+                                🔙 Volver
+                            </button>
+                        )}
+                        <select
+                            className={styles.miniSelect}
+                            value={pieFilter}
+                            onChange={e => {
+                                setPieFilter(e.target.value as "Egreso" | "Ingreso");
+                                setSelectedCategory(null);
+                            }}
+                        >
+                            <option value="Egreso">Egresos</option>
+                            <option value="Ingreso">Ingresos</option>
+                        </select>
+                    </div>
+                </div>
+                <div className={styles.chartArea}>
+                    {pieData.labels.length > 0 ? (
+                        <Pie
+                            data={pieData}
+                            options={{
+                                onClick: (event, elements) => {
+                                    if (elements.length > 0 && !selectedCategory) {
+                                        const index = elements[0].index;
+                                        setSelectedCategory(pieData.labels[index] as string);
+                                    }
+                                },
+                                plugins: {
+                                    legend: { position: 'bottom', labels: { color: chartTextColor } },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: (context) => {
+                                                const label = context.label || '';
+                                                const value = context.parsed || 0;
+                                                const dataArray = context.dataset.data as number[];
+                                                const total = dataArray.reduce((acc, curr) => acc + curr, 0);
+                                                const percentage = total > 0 ? ((value * 100) / total).toFixed(1) : "0";
+                                                return `${label}: ${fmt(value)} (${percentage}%)`;
+                                            }
+                                        }
+                                    }
+                                },
+                                cutout: '40%',
+                                maintainAspectRatio: false,
+                            }}
+                        />
+                    ) : (
+                        <p className="text-muted">No hay registros de {pieFilter.toLowerCase()}.</p>
+                    )}
+                </div>
+            </section>
+
+            {/* Tarjeta de Balance Total */}
+            <section className={`glass-panel ${styles.card}`}>
+                <div className={styles.headerWithTabs}>
+                    <h3 className="text-muted">Balance Histórico</h3>
+                    <select
+                        className={styles.miniSelect}
+                        value={balanceMonth}
+                        onChange={e => setBalanceMonth(e.target.value)}
+                    >
+                        <option value="Total">Total</option>
+                        {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                </div>
+
+                <div className={styles.balanceSummary}>
+                    <div className={styles.summaryRow}>
+                        <span>Ingresos</span>
+                        <span className={styles.successText}>{fmt(ingresos)}</span>
+                    </div>
+                    <div className={styles.summaryRow}>
+                        <span>Egresos</span>
+                        <span className={styles.dangerText}>-{fmt(egresos)}</span>
+                    </div>
+                    <div className={`${styles.summaryRow} ${styles.totalRow}`}>
+                        <span>Balance</span>
+                        <span style={{ color: balance >= 0 ? "var(--success-color)" : "var(--danger-color)" }}>
+                            {fmt(balance)}
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            {/* Evolución Histórica (Líneas) */}
+            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
+                <div className={styles.headerWithTabs}>
+                    <h3 className="text-muted">Evolución en el Tiempo</h3>
+                    <div className={styles.tabs}>
+                        <button
+                            className={`${styles.tabBtn} ${lineFilter === "Comparativo" ? styles.activeTab : ""}`}
+                            onClick={() => setLineFilter("Comparativo")}
+                        >
+                            Comparativo G/I
+                        </button>
+                        <button
+                            className={`${styles.tabBtn} ${lineFilter === "Categorias" ? styles.activeTab : ""}`}
+                            onClick={() => setLineFilter("Categorias")}
+                        >
+                            Egresos/Cat
+                        </button>
+                        <button
+                            className={`${styles.tabBtn} ${lineFilter === "Balance" ? styles.activeTab : ""}`}
+                            onClick={() => setLineFilter("Balance")}
+                        >
+                            Acumulado
+                        </button>
+                    </div>
+                </div>
+                <div className={styles.lineChartArea}>
+                    {lineData.labels.length > 0 ? (
+                        <Line
+                            data={lineData}
+                            options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { position: 'bottom', labels: { color: chartTextColor } }
+                                },
+                                scales: {
+                                    x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
+                                    y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
+                                }
+                            }}
+                        />
+                    ) : (
+                        <p className="text-muted">No hay datos suficientes.</p>
+                    )}
+                </div>
+            </section>
+
+
+
+            {/* Movimientos List */}
+            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
+                <div className={styles.headerWithTabs} style={{ marginBottom: "16px" }}>
+                    <h3 className="text-muted">Historial de Movimientos</h3>
+                </div>
+
+                {recentTx.length === 0 ? (
+                    <p className="text-muted text-center" style={{ marginTop: "20px" }}>No hay nada registrado aún.</p>
+                ) : (
+                    <>
+                        <ul className={styles.txList}>
+                            {recentTx.map((tx, idx) => {
+                                const isEgreso = tx[2] === "Egreso";
+                                const val = parseFloat(String(tx[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+
+                                const isDiscount = isEgreso && val < 0;
+                                const isIncome = !isEgreso;
+
+                                let amountColor = "var(--danger-color)";
+                                let amountSign = "-";
+                                let iconChar = isEgreso ? "📉" : "📈";
+
+                                const subCat = String(tx[4]);
+                                if (SUBCATEGORY_EMOJIS[subCat]) {
+                                    iconChar = SUBCATEGORY_EMOJIS[subCat];
+                                }
+
+                                if (isIncome) {
+                                    amountColor = "var(--success-color)";
+                                    amountSign = "+";
+                                } else if (isDiscount) {
+                                    amountColor = "var(--accent-color)"; /* Azul/Accent */
+                                    amountSign = "+"; /* Impacta positivamente */
+                                }
+
+                                const fmtAmt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Math.abs(val));
+
+                                return (
+                                    <li key={idx} className={styles.txItem}>
+                                        <div className={styles.txInfo}>
+                                            <div className={styles.txIcon} style={{ color: amountColor }}>
+                                                {iconChar}
+                                            </div>
+                                            <div>
+                                                <p className={styles.txTitle}>{tx[3]} - {tx[4]}</p>
+                                                <p className={styles.txDate}>{tx[1]} • <span style={{ fontSize: "0.80rem", opacity: 0.8 }}>{tx[6]}</span></p>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
+                                            <div className={styles.txAmount} style={{ color: amountColor }}>
+                                                {amountSign}{fmtAmt}
+                                            </div>
+                                            <button
+                                                onClick={() => handleDelete(tx)}
+                                                style={{ background: "none", border: "none", color: "var(--danger-color)", cursor: "pointer", fontSize: "1.2rem", padding: "0 8px" }}
+                                                title="Eliminar movimiento"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    </li>
+                                )
+                            })}
+                        </ul>
+                        {data.length > txLimit && (
+                            <button className={styles.loadMoreBtn} onClick={() => setTxLimit(data.length)}>
+                                Ver Todos los Movimientos 👇
+                            </button>
+                        )}
+                    </>
+                )}
+            </section>
+        </>
+    );
+}

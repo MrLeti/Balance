@@ -1,0 +1,153 @@
+/* TransactionInput.module.css */
+.inputArea {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.smartInput {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 16px;
+    font-family: inherit;
+    font-size: 1rem;
+    color: var(--text-main);
+    resize: none;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.smartInput:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.inputActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.hiddenInput {
+    display: none;
+}
+
+.addBtn {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    padding: 8px 16px;
+    border-radius: 99px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.2s;
+}
+
+.addBtn:hover {
+    background: var(--glass-bg);
+}
+
+.submitBtn {
+    background: var(--text-main);
+    color: var(--bg-color);
+    border: none;
+    padding: 8px 24px;
+    border-radius: 99px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.submitBtn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.submitBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.submitBtnLoading {
+    background: var(--accent-color);
+    color: #fff;
+    border: none;
+    padding: 8px 24px;
+    border-radius: 99px;
+    font-weight: 600;
+    cursor: wait;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes spin {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.attachment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    width: fit-content;
+}
+
+.fileIcon {
+    font-size: 1.2rem;
+}
+
+.fileName {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.removeFile {
+    background: none;
+    border: none;
+    color: var(--danger-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.dragActive {
+    border-color: var(--accent-color) !important;
+    background-color: rgba(59, 130, 246, 0.1) !important;
+    transform: scale(1.01);
+}
+
+.dragMsg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--accent-color);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 99px;
+    font-weight: 600;
+    pointer-events: none;
+    z-index: 10;
+}

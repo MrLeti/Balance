@@ -1,0 +1,182 @@
+/* ValidationModal.module.css */
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal {
+    background: var(--bg-color);
+    width: 90%;
+    max-width: 1000px;
+    max-height: 85vh;
+    border-radius: 16px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+}
+
+.header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--glass-bg);
+}
+
+.title {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+.closeBtn {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.scrollArea {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+    padding: 24px;
+}
+
+.emptyMsg {
+    text-align: center;
+    color: var(--text-muted);
+    margin: 40px 0;
+}
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 800px;
+}
+
+.table th {
+    text-align: left;
+    padding: 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.85rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.table td {
+    padding: 12px 6px;
+    vertical-align: middle;
+}
+
+.rowConfirmed td {
+    background-color: var(--glass-bg);
+    opacity: 0.7;
+}
+
+.inputStyle,
+.selectStyle {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    color: var(--text-main);
+    font-size: 0.9rem;
+}
+
+.inputStyle:focus,
+.selectStyle:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.inputNum {
+    font-family: monospace;
+    font-weight: 600;
+    text-align: right;
+}
+
+.checkbox {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: var(--success-color);
+}
+
+.footer {
+    padding: 20px 24px;
+    border-top: 1px solid var(--glass-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--glass-bg);
+}
+
+.totals {
+    font-size: 1.1rem;
+}
+
+.totals strong {
+    margin-left: 8px;
+    font-size: 1.25rem;
+    color: var(--text-main);
+}
+
+.saveBtn {
+    background: var(--success-color);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.saveBtn:hover {
+    transform: translateY(-1px);
+}
+
+.saveBtnDisabled {
+    background: var(--glass-border);
+    color: var(--text-muted);
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: not-allowed;
+}
+
+.actions {
+    display: flex;
+    gap: 12px;
+}
+
+.cancelBtn {
+    background: transparent;
+    color: var(--danger-color);
+    border: 1px solid var(--danger-color);
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.cancelBtn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}

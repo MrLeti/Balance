@@ -1,0 +1,193 @@
+.container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboardContainer {
+    flex: 1;
+    max-width: 1200px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 32px 24px;
+}
+
+.dashboardGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 24px;
+}
+
+.card {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.colSpan2 {
+    grid-column: span 2;
+}
+
+.colSpanFull {
+    grid-column: 1 / -1;
+}
+
+.balanceAmount {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 8px 0;
+    color: var(--text-main);
+    letter-spacing: -0.05em;
+}
+
+.trend {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.inputArea {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.smartInput {
+    background: var(--bg-color);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 16px;
+    font-family: inherit;
+    font-size: 1rem;
+    color: var(--text-main);
+    resize: none;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.smartInput:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.inputActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.addBtn {
+    background: var(--bg-color);
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    padding: 8px 16px;
+    border-radius: 99px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.2s;
+}
+
+.addBtn:hover {
+    background: var(--glass-border);
+}
+
+.submitBtn {
+    background: var(--text-main);
+    color: var(--bg-color);
+    border: none;
+    padding: 8px 24px;
+    border-radius: 99px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.submitBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.placeholderPie {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 150px;
+    color: var(--text-muted);
+    border: 2px dashed var(--glass-border);
+    margin-top: 16px;
+    border-radius: 50%;
+}
+
+.txList {
+    list-style: none;
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.txItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-radius: 12px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    transition: transform 0.2s;
+}
+
+.txItem:hover {
+    transform: translateX(4px);
+}
+
+.txInfo {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.txIcon {
+    font-size: 1.5rem;
+    background: var(--bg-color);
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+}
+
+.txTitle {
+    font-weight: 600;
+    font-size: 1rem;
+}
+
+.txDate {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.txAmount {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+@media (max-width: 900px) {
+    .dashboardGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .colSpan2 {
+        grid-column: span 1;
+    }
+}
