@@ -1,6 +1,6 @@
 {
-    "name": "Balance",
-    "short_name": "Balance",
+    "name": "Vesta",
+    "short_name": "Vesta",
     "description": "Tu registro de finanzas personales, inteligente y sin complicaciones.",
     "start_url": "/",
     "display": "standalone",

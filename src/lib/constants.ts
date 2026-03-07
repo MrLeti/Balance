@@ -11,6 +11,18 @@ export const CATEGORIES = {
     },
 };
 
+export const CATEGORY_COLORS: Record<string, string> = {
+    // Egresos
+    "Comunes": "#f59e0b", // Naranja/Ambar
+    "Habitacionales": "#8b5cf6", // Violeta
+    "Puntuales": "#ec4899", // Rosa
+    "Ocio": "#0ea5e9", // Celeste
+
+    // Ingresos
+    "Salario": "#22c55e", // Verde
+    "Extras": "#14b8a6", // Turquesa
+};
+
 export type TrxType = "Egreso" | "Ingreso";
 export type TrxCategory = string;
 export type TrxSubCategory = string;

@@ -56,11 +56,13 @@ export default function TransactionInput() {
     const [loading, setLoading] = useState(false);
     const [extractedItems, setExtractedItems] = useState<ExtractedItem[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const [isDragging, setIsDragging] = useState(false);
 
-    const handleProcess = async () => {
-        if (!textInput && !imageFile) return;
+    const handleProcess = async (directFile?: File) => {
+        const fileToProcess = directFile || imageFile;
+        if (!textInput && !fileToProcess) return;
         setLoading(true);
 
         try {
@@ -68,8 +70,8 @@ export default function TransactionInput() {
             if (textInput) formData.append("text", textInput);
 
             // Comprimir la imagen antes de subirla en background
-            if (imageFile) {
-                const compressedSnapshot = await compressImage(imageFile);
+            if (fileToProcess) {
+                const compressedSnapshot = await compressImage(fileToProcess);
                 formData.append("file", compressedSnapshot);
             }
 
@@ -87,7 +89,7 @@ export default function TransactionInput() {
             setExtractedItems(data.items || []);
             setIsModalOpen(true);
         } catch (err: unknown) {
-            alert(err instanceof Error ? err.message : "Hubo un error al procesar tu solicitud.");
+            setErrorMsg(err instanceof Error ? err.message : "Hubo un error al procesar tu solicitud.");
             console.error(err);
         } finally {
             setLoading(false);
@@ -120,6 +122,7 @@ export default function TransactionInput() {
         const files = e.dataTransfer.files;
         if (files && files.length > 0 && files[0].type.startsWith("image/")) {
             setImageFile(files[0]);
+            void handleProcess(files[0]);
         }
     };
 
@@ -131,6 +134,7 @@ export default function TransactionInput() {
                 const file = items[i].getAsFile();
                 if (file) {
                     setImageFile(file);
+                    void handleProcess(file);
                     // Prevenimos que se pegue también el texto interno a veces asocido a la imagen
                     e.preventDefault();
                     break;
@@ -179,14 +183,16 @@ export default function TransactionInput() {
                             className={styles.hiddenInput}
                             onChange={(e) => {
                                 if (e.target.files && e.target.files[0]) {
-                                    setImageFile(e.target.files[0]);
+                                    const file = e.target.files[0];
+                                    setImageFile(file);
+                                    void handleProcess(file);
                                 }
                             }}
                         />
                     </label>
                     <button
                         className={loading ? styles.submitBtnLoading : styles.submitBtn}
-                        onClick={handleProcess}
+                        onClick={() => handleProcess()}
                         disabled={loading || (!textInput && !imageFile)}
                     >
                         {loading ? "Pensando..." : "Procesar"} <span className={loading ? styles.spin : ""}>✨</span>
@@ -201,9 +207,34 @@ export default function TransactionInput() {
                     onSuccess={() => {
                         setIsModalOpen(false);
                         clearForm();
-                        // TODO: Trigger refresh on the dashboard to show new data
+                        // Trigger refresh on the dashboard to show new data
                     }}
                 />
+            )}
+
+            {errorMsg && (
+                <div className={styles.errorOverlay}>
+                    <div className={styles.errorModal}>
+                        <h3 style={{ marginBottom: 12, fontSize: '1.2rem', color: 'var(--text-main)' }}>Vesta dice</h3>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>{errorMsg}</p>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                                onClick={() => setErrorMsg(null)}
+                                style={{
+                                    background: 'transparent',
+                                    color: 'var(--accent-color)',
+                                    border: '1px solid var(--accent-color)',
+                                    padding: '8px 24px',
+                                    borderRadius: '8px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Aceptar
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
         </>
     );

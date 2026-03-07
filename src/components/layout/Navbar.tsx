@@ -12,8 +12,8 @@ export default function Navbar() {
         <nav className={styles.navbar}>
             <div className={styles.container}>
                 <div className={styles.logo}>
-                    <span className={styles.icon}>🟣</span>
-                    <h2>Balance</h2>
+                    <span className={styles.icon}>🪴</span>
+                    <h2>Vesta</h2>
                 </div>
 
                 <div className={styles.actions}>

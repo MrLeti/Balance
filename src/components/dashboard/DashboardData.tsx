@@ -15,6 +15,8 @@ import {
     Filler
 } from 'chart.js';
 import { Pie, Line } from 'react-chartjs-2';
+import SankeyChart from "./SankeyChart";
+import { CATEGORY_COLORS } from "@/lib/constants";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler);
 
@@ -194,10 +196,10 @@ export default function DashboardData() {
             labels: Object.keys(itemTotals),
             datasets: [{
                 data: Object.values(itemTotals),
-                backgroundColor: [
-                    '#5E82D5', '#98B3E1', '#ECAEA9', '#E0726B',
-                    '#7BBD9F', '#B3E1C5', '#F5D38A', '#F1AD5C'
-                ],
+                backgroundColor: Object.keys(itemTotals).map((label, idx) => {
+                    const fallbackColors = ['#5E82D5', '#98B3E1', '#ECAEA9', '#E0726B', '#7BBD9F', '#B3E1C5', '#F5D38A', '#F1AD5C'];
+                    return CATEGORY_COLORS[label] || fallbackColors[idx % fallbackColors.length];
+                }),
                 borderColor: isDark ? 'rgba(30, 41, 59, 1)' : 'rgba(255, 255, 255, 1)',
                 borderWidth: 2,
             }]
@@ -256,11 +258,12 @@ export default function DashboardData() {
         } else if (lineFilter === "Categorias") {
             // Create a dataset for each category found
             Array.from(allCategoriesEncountered).forEach((cat, idx) => {
+                const color = CATEGORY_COLORS[cat] || catColors[idx % catColors.length];
                 datasets.push({
                     label: cat,
                     data: labels.map(l => dailyData[l].categories[cat] || 0),
-                    borderColor: catColors[idx % catColors.length],
-                    backgroundColor: catColors[idx % catColors.length],
+                    borderColor: color,
+                    backgroundColor: color,
                     tension: 0.3
                 });
             });
@@ -412,6 +415,14 @@ export default function DashboardData() {
                         </span>
                     </div>
                 </div>
+            </section>
+
+            {/* Evolución Cashflow - Sankey */}
+            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
+                <div className={styles.headerWithTabs}>
+                    <h3 className="text-muted">Flujo de Dinero (Cashflow)</h3>
+                </div>
+                <SankeyChart data={data} isDark={isDark} />
             </section>
 
             {/* Evolución Histórica (Líneas) */}

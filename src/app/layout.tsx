@@ -1,5 +1,11 @@
 import "./globals.css";
 import AuthProvider from "@/components/auth/AuthProvider";
+import { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Vesta",
+  description: "Tu registro de finanzas personales, inteligente y moderno.",
+};
 
 export default function RootLayout({
   children,

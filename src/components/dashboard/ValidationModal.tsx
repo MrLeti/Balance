@@ -15,8 +15,10 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
         items.map((item) => ({ ...item, isConfirmed: false }))
     );
     const [isSaving, setIsSaving] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const allConfirmed = editableItems.every((i) => i.isConfirmed);
+    const someConfirmed = editableItems.some((i) => i.isConfirmed);
 
     const handleToggleConfirm = (index: number) => {
         setEditableItems((prev) =>
@@ -40,18 +42,18 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
     };
 
     const calculateTotal = () => {
-        return editableItems.reduce((acc, curr) => {
+        return editableItems.filter(i => i.isConfirmed).reduce((acc, curr) => {
             const p = parseFloat(String(curr.Monto).replace(",", ".") || "0");
             return acc + (isNaN(p) ? 0 : p);
         }, 0).toFixed(2);
     };
 
     const handleSave = async () => {
-        if (!allConfirmed) return;
+        if (!someConfirmed) return;
         setIsSaving(true);
         try {
             // Formato para enviar a Google Sheets: [Fecha, Tipo, Categoría, Subcategoría, Monto, Comentario]
-            const rowsToInsert = editableItems.map((item) => [
+            const rowsToInsert = editableItems.filter(i => i.isConfirmed).map((item) => [
                 item.Fecha,
                 item.Tipo,
                 item.Categoría,
@@ -70,8 +72,8 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
 
             onSuccess();
             window.dispatchEvent(new Event("transaction_added"));
-        } catch (err) {
-            alert("Hubo un error al guardar los datos.");
+        } catch (err: unknown) {
+            setErrorMsg(err instanceof Error ? err.message : "Hubo un error al guardar los datos.");
             console.error(err);
         } finally {
             setIsSaving(false);
@@ -224,15 +226,44 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                             Cancelar
                         </button>
                         <button
-                            className={allConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
-                            disabled={!allConfirmed || isSaving || editableItems.length === 0}
+                            className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
+                            disabled={!someConfirmed || isSaving || editableItems.length === 0}
                             onClick={handleSave}
                         >
-                            {isSaving ? "Guardando..." : "Confirmar y Guardar"}
+                            {isSaving ? "Guardando..." : "Confirmar Seleccionados"}
                         </button>
                     </div>
                 </div>
             </div>
+
+            {errorMsg && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                    background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{
+                        background: 'var(--bg-color)', padding: 24, borderRadius: 16,
+                        width: '90%', maxWidth: 400, boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+                        border: '1px solid var(--glass-border)'
+                    }}>
+                        <h3 style={{ marginBottom: 12, fontSize: '1.2rem', color: 'var(--text-main)' }}>Vesta dice</h3>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>{errorMsg}</p>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                                onClick={() => setErrorMsg(null)}
+                                style={{
+                                    background: 'transparent', color: 'var(--accent-color)',
+                                    border: '1px solid var(--accent-color)', padding: '8px 24px',
+                                    borderRadius: '8px', fontWeight: 600, cursor: 'pointer'
+                                }}
+                            >
+                                Aceptar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
