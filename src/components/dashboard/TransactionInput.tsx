@@ -5,6 +5,51 @@ import styles from "./TransactionInput.module.css";
 import ValidationModal from "@/components/dashboard/ValidationModal";
 import { ExtractedItem } from "@/lib/constants";
 
+// --- Utilidad para comprimir imágenes en el celular previniendo el error 413 de Vercel ---
+const compressImage = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const MAX_WIDTH = 1000;
+                const MAX_HEIGHT = 1400;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx?.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
+                    } else {
+                        reject(new Error("Fallo de compresión."));
+                    }
+                }, 'image/jpeg', 0.7); // 70% de calidad es más que perfecto para OCR de tickets
+            };
+            img.onerror = (error) => reject(error);
+        };
+        reader.onerror = (error) => reject(error);
+    });
+};
+
 export default function TransactionInput() {
     const [textInput, setTextInput] = useState("");
     const [imageFile, setImageFile] = useState<File | null>(null);
@@ -21,7 +66,12 @@ export default function TransactionInput() {
         try {
             const formData = new FormData();
             if (textInput) formData.append("text", textInput);
-            if (imageFile) formData.append("file", imageFile);
+
+            // Comprimir la imagen antes de subirla en background
+            if (imageFile) {
+                const compressedSnapshot = await compressImage(imageFile);
+                formData.append("file", compressedSnapshot);
+            }
 
             const res = await fetch("/api/process", {
                 method: "POST",
