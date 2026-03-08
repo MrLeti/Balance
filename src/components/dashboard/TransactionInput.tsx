@@ -71,8 +71,11 @@ export default function TransactionInput() {
 
             // Comprimir la imagen antes de subirla en background
             if (fileToProcess) {
-                const compressedSnapshot = await compressImage(fileToProcess);
-                formData.append("file", compressedSnapshot);
+                let finalFile = fileToProcess;
+                if (fileToProcess.type.startsWith("image/")) {
+                    finalFile = await compressImage(fileToProcess);
+                }
+                formData.append("file", finalFile);
             }
 
             const res = await fetch("/api/process", {
@@ -120,9 +123,12 @@ export default function TransactionInput() {
         setIsDragging(false);
 
         const files = e.dataTransfer.files;
-        if (files && files.length > 0 && files[0].type.startsWith("image/")) {
-            setImageFile(files[0]);
-            void handleProcess(files[0]);
+        if (files && files.length > 0) {
+            const file = files[0];
+            if (file.type.startsWith("image/") || file.type === "application/pdf") {
+                setImageFile(file);
+                void handleProcess(file);
+            }
         }
     };
 
@@ -130,8 +136,9 @@ export default function TransactionInput() {
     const handlePaste = (e: React.ClipboardEvent) => {
         const items = e.clipboardData.items;
         for (let i = 0; i < items.length; i++) {
-            if (items[i].type.indexOf("image") !== -1) {
-                const file = items[i].getAsFile();
+            const item = items[i];
+            if (item.type.indexOf("image") !== -1 || item.type === "application/pdf") {
+                const file = item.getAsFile();
                 if (file) {
                     setImageFile(file);
                     void handleProcess(file);
@@ -159,7 +166,7 @@ export default function TransactionInput() {
                 <textarea
                     className={styles.smartInput}
                     rows={2}
-                    placeholder='Ej: "Gasté 5000 en el súper en limpieza" • O pegá tu foto acá (Ctrl+V) • O arrastrala 📸'
+                    placeholder='Ej: "Gasté 5000 en el súper en limpieza" • O pegá tu foto/PDF acá (Ctrl+V) • O arrastralo 📄'
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     disabled={loading}
@@ -178,7 +185,7 @@ export default function TransactionInput() {
                         <span>📸</span> Scan
                         <input
                             type="file"
-                            accept="image/*"
+                            accept="image/*, application/pdf"
                             capture="environment"
                             className={styles.hiddenInput}
                             onChange={(e) => {
