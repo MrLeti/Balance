@@ -41,11 +41,35 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
         );
     };
 
-    const calculateTotal = () => {
-        return editableItems.filter(i => i.isConfirmed).reduce((acc, curr) => {
-            const p = parseFloat(String(curr.Monto).replace(",", ".") || "0");
-            return acc + (isNaN(p) ? 0 : p);
-        }, 0).toFixed(2);
+    // Defensa: Parseo para formato de Gemini/input type=number
+    const parseAmount = (raw: string | number) => {
+        if (typeof raw === "number") return raw;
+        const cleanStr = String(raw).replace(/[^\d.,-]/g, '');
+
+        // Si tiene una coma, es indudable que viene en notación española (ej: 15.000,50 o 15000,50)
+        if (cleanStr.includes(',')) {
+            const standardized = cleanStr.replace(/\./g, '').replace(',', '.');
+            const parsed = parseFloat(standardized);
+            return isNaN(parsed) ? 0 : parsed;
+        }
+
+        // Si no hay comas, el punto (si lo hay) probablemente sea un separador decimal nativo ("15000.50"),
+        // lo cual es lo que genera el <input type="number"> internamente.
+        // (Alucinación edge case: Si hay múltiples puntos "1.500.000", los removemos)
+        if ((cleanStr.match(/\./g) || []).length > 1) {
+            return parseFloat(cleanStr.replace(/\./g, '')) || 0;
+        }
+
+        const parsed = parseFloat(cleanStr);
+        return isNaN(parsed) ? 0 : parsed;
+    };
+
+    const calculateGlobalTotal = () => {
+        return editableItems.reduce((acc, curr) => acc + parseAmount(curr.Monto), 0).toFixed(2);
+    };
+
+    const calculateConfirmedTotal = () => {
+        return editableItems.filter(i => i.isConfirmed).reduce((acc, curr) => acc + parseAmount(curr.Monto), 0).toFixed(2);
     };
 
     const handleSave = async () => {
@@ -58,7 +82,7 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                 item.Tipo,
                 item.Categoría,
                 item.Subcategoría,
-                Number(String(item.Monto).replace(",", ".")),
+                parseAmount(item.Monto),
                 item.Comentario,
             ]);
 
@@ -214,8 +238,12 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                 </div>
 
                 <div className={styles.footer}>
-                    <div className={styles.totals}>
-                        Total Múltiple: <strong>${calculateTotal()}</strong>
+                    <div className={styles.totalsGrid}>
+                        <span className={styles.totalsLabel} style={{ color: 'var(--text-muted)' }}>Total:</span>
+                        <span className={styles.totalsValue} style={{ color: 'var(--text-muted)' }}>${calculateGlobalTotal()}</span>
+
+                        <span className={styles.totalsLabel}>Total Confirmado:</span>
+                        <span className={styles.totalsValue} style={{ color: 'var(--success-color)' }}>${calculateConfirmedTotal()}</span>
                     </div>
                     <div className={styles.actions}>
                         <button

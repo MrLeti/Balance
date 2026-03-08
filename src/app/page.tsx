@@ -13,7 +13,7 @@ export default async function Home() {
       <Navbar />
 
       {!session ? (
-        <main className="glass-panel" style={{ padding: "40px 32px", textAlign: "center", maxWidth: "420px", margin: "10vh auto" }}>
+        <main className="glass-panel" style={{ padding: "40px 32px", textAlign: "center", maxWidth: "420px", width: "90%", margin: "10vh auto" }}>
           <h1 className="title" style={{ fontSize: "2.5rem", marginBottom: "16px" }}>Vesta</h1>
           <p className="text-muted" style={{ marginBottom: "32px", fontSize: "1.1rem", lineHeight: "1.5" }}>
             Tu registro de finanzas personales.<br />

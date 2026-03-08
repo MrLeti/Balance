@@ -517,7 +517,7 @@ export default function DashboardData() {
                                             <div className={styles.txIcon} style={{ color: amountColor }}>
                                                 {iconChar}
                                             </div>
-                                            <div>
+                                            <div style={{ minWidth: 0 }}>
                                                 <p className={styles.txTitle}>{tx[3]} - {tx[4]}</p>
                                                 <p className={styles.txDate}>{tx[1]} • <span style={{ fontSize: "0.80rem", opacity: 0.8 }}>{tx[6]}</span></p>
                                             </div>

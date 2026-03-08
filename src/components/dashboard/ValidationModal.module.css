@@ -3,7 +3,7 @@
     position: fixed;
     top: 0;
     left: 0;
-    width: 100vw;
+    width: 100%;
     height: 100vh;
     background: rgba(0, 0, 0, 0.4);
     backdrop-filter: blur(8px);
@@ -126,14 +126,23 @@
     background: var(--glass-bg);
 }
 
-.totals {
-    font-size: 1.1rem;
+.totalsGrid {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 12px;
+    row-gap: 4px;
+    align-items: center;
 }
 
-.totals strong {
-    margin-left: 8px;
-    font-size: 1.25rem;
-    color: var(--text-main);
+.totalsLabel {
+    text-align: right;
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.totalsValue {
+    font-size: 1.1rem;
+    font-weight: 700;
 }
 
 .saveBtn {
@@ -189,6 +198,10 @@
         border: none;
     }
 
+    .scrollArea {
+        padding: 16px;
+    }
+
     .table {
         min-width: 0;
         display: block;
@@ -198,24 +211,75 @@
         display: none;
     }
 
-    .table tbody,
-    .table tr,
-    .table td {
+    .table tbody {
         display: block;
         width: 100%;
     }
 
     .table tr {
-        margin-bottom: 24px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 16px;
         padding: 16px;
         background: var(--glass-bg);
         border: 1px solid var(--glass-border);
-        border-radius: 16px;
+        border-radius: 12px;
     }
 
     .table td {
-        padding: 6px 0;
+        display: block;
+        padding: 0;
+        width: auto;
     }
+
+    /* Redistribución en formato Tarjeta (Card) */
+    .table td:nth-child(7) {
+        order: 1;
+        flex: 0 0 auto;
+        margin-right: 4px;
+    }
+
+    /* Checkbox */
+    .table td:nth-child(1) {
+        order: 2;
+        flex: 1 1 40%;
+    }
+
+    /* Fecha */
+    .table td:nth-child(6) {
+        order: 3;
+        flex: 0 0 90px;
+    }
+
+    /* Monto */
+
+    .table td:nth-child(2) {
+        order: 4;
+        flex: 1 1 45%;
+    }
+
+    /* Tipo */
+    .table td:nth-child(3) {
+        order: 5;
+        flex: 1 1 45%;
+    }
+
+    /* Cat */
+    .table td:nth-child(4) {
+        order: 6;
+        flex: 1 1 100%;
+    }
+
+    /* Subcat */
+
+    .table td:nth-child(5) {
+        order: 7;
+        flex: 1 1 100%;
+    }
+
+    /* Comentario */
 
     .footer {
         flex-direction: column;
