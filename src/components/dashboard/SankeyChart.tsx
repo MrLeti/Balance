@@ -132,8 +132,6 @@ export default function SankeyChart({ data, isDark }: { data: Exclude<any, null>
                 colorTo: (c: any) => getNodeColor(c.dataset.data[c.dataIndex].to),
                 colorMode: 'gradient' as const,
                 size: 'max' as const,
-                borderWidth: 1,
-                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                 labels: nodeLabels, // Chartjs-sankey usa esto para cambiar el ID interno por el texto de display!
                 color: isDark ? '#ffffff' : '#0f172a', // Color intenso para alto contraste
                 nodePadding: 45, // <== Separación vertical vital

@@ -149,20 +149,27 @@ export default function DashboardData() {
         });
     }, [data]);
 
-    const { balance, ingresos, egresos } = useMemo(() => {
-        let b = 0; let i = 0; let e = 0;
-        data.forEach(row => {
-            if (row.length < 6) return;
+    const filteredData = useMemo(() => {
+        if (balanceMonth === "Total") return data;
+        return data.filter(row => {
+            if (row.length < 6) return false;
             const dateStr = row[1];
-            const type = row[2];
-
-            if (balanceMonth !== "Total" && typeof dateStr === 'string') {
+            if (typeof dateStr === 'string') {
                 const parts = dateStr.split("/");
                 if (parts.length >= 3) {
                     const monthYear = `${parts[1]}/${parts[2]}`;
-                    if (monthYear !== balanceMonth) return;
+                    return monthYear === balanceMonth;
                 }
             }
+            return false;
+        });
+    }, [data, balanceMonth]);
+
+    const { balance, ingresos, egresos } = useMemo(() => {
+        let b = 0; let i = 0; let e = 0;
+        filteredData.forEach(row => {
+            if (row.length < 6) return;
+            const type = row[2];
 
             const amountRaw = String(row[5]);
             const cleanAmountStr = amountRaw.replace(/[^\d.,-]/g, '');
@@ -171,11 +178,11 @@ export default function DashboardData() {
             if (type === "Egreso") { e += val; b -= val; }
         });
         return { balance: b, ingresos: i, egresos: e };
-    }, [data, balanceMonth]);
+    }, [filteredData]);
 
     const pieData = useMemo(() => {
         const itemTotals: Record<string, number> = {};
-        data.forEach(row => {
+        filteredData.forEach(row => {
             if (row.length < 6) return;
             const type = row[2];
             if (type !== pieFilter) return;
@@ -204,7 +211,7 @@ export default function DashboardData() {
                 borderWidth: 2,
             }]
         };
-    }, [data, pieFilter, selectedCategory, isDark]);
+    }, [filteredData, pieFilter, selectedCategory, isDark]);
 
     const lineData = useMemo(() => {
         const dailyData: Record<string, { ingreso: number, egreso: number, balanceDay: number, categories: Record<string, number> }> = {};
@@ -214,7 +221,7 @@ export default function DashboardData() {
         const catColors = ['#5E82D5', '#E0726B', '#7BBD9F', '#F1AD5C', '#8B5CF6', '#10B981', '#EC4899'];
         const allCategoriesEncountered = new Set<string>();
 
-        data.forEach(row => {
+        filteredData.forEach(row => {
             if (row.length < 6) return;
             const dateStr = String(row[1]);
             const type = row[2];
@@ -279,12 +286,12 @@ export default function DashboardData() {
         }
 
         return { labels, datasets };
-    }, [data, lineFilter]);
+    }, [filteredData, lineFilter]);
 
     const recentTx = useMemo(() => {
-        const reversed = [...data].reverse();
+        const reversed = [...filteredData].reverse();
         return reversed.slice(0, txLimit);
-    }, [data, txLimit]);
+    }, [filteredData, txLimit]);
 
     const handleDelete = async (tx: (string | number)[]) => {
         if (!window.confirm("¿Seguro que querés eliminar este movimiento?")) return;
@@ -384,44 +391,53 @@ export default function DashboardData() {
                 </div>
             </section>
 
-            {/* Tarjeta de Balance Total */}
-            <section className={`glass-panel ${styles.card}`}>
-                <div className={styles.headerWithTabs}>
-                    <h3 className="text-muted">Balance Histórico</h3>
+            {/* Columna Derecha (Filtro + Balance) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {/* Caja de Filtro de Período */}
+                <section className="glass-panel" style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '16px' }}>
+                    <h3 className="text-muted" style={{ margin: 0, fontSize: '1rem' }}>Filtro de Período</h3>
                     <select
                         className={styles.miniSelect}
                         value={balanceMonth}
                         onChange={e => setBalanceMonth(e.target.value)}
+                        style={{ fontSize: '0.95rem', padding: '6px 12px', minWidth: '130px' }}
                     >
-                        <option value="Total">Total</option>
+                        <option value="Total">Histórico Completo</option>
                         {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
-                </div>
+                </section>
 
-                <div className={styles.balanceSummary}>
-                    <div className={styles.summaryRow}>
-                        <span>Ingresos</span>
-                        <span className={styles.successText}>{fmt(ingresos)}</span>
+                {/* Tarjeta de Balance Total */}
+                <section className={`glass-panel ${styles.card}`} style={{ flex: 1 }}>
+                    <div style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '16px' }}>
+                        <h3 className="text-muted" style={{ margin: 0 }}>Balance General</h3>
                     </div>
-                    <div className={styles.summaryRow}>
-                        <span>Egresos</span>
-                        <span className={styles.dangerText}>-{fmt(egresos)}</span>
+
+                    <div className={styles.balanceSummary}>
+                        <div className={styles.summaryRow}>
+                            <span>Ingresos</span>
+                            <span className={styles.successText}>{fmt(ingresos)}</span>
+                        </div>
+                        <div className={styles.summaryRow}>
+                            <span>Egresos</span>
+                            <span className={styles.dangerText}>-{fmt(egresos)}</span>
+                        </div>
+                        <div className={`${styles.summaryRow} ${styles.totalRow}`}>
+                            <span>Balance</span>
+                            <span style={{ color: balance >= 0 ? "var(--success-color)" : "var(--danger-color)" }}>
+                                {fmt(balance)}
+                            </span>
+                        </div>
                     </div>
-                    <div className={`${styles.summaryRow} ${styles.totalRow}`}>
-                        <span>Balance</span>
-                        <span style={{ color: balance >= 0 ? "var(--success-color)" : "var(--danger-color)" }}>
-                            {fmt(balance)}
-                        </span>
-                    </div>
-                </div>
-            </section>
+                </section>
+            </div>
 
             {/* Evolución Cashflow - Sankey */}
             <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
                 <div className={styles.headerWithTabs}>
                     <h3 className="text-muted">Flujo de Dinero (Cashflow)</h3>
                 </div>
-                <SankeyChart data={data} isDark={isDark} />
+                <SankeyChart data={filteredData} isDark={isDark} />
             </section>
 
             {/* Evolución Histórica (Líneas) */}
@@ -537,8 +553,8 @@ export default function DashboardData() {
                                 )
                             })}
                         </ul>
-                        {data.length > txLimit && (
-                            <button className={styles.loadMoreBtn} onClick={() => setTxLimit(data.length)}>
+                        {filteredData.length > txLimit && (
+                            <button className={styles.loadMoreBtn} onClick={() => setTxLimit(filteredData.length)}>
                                 Ver Todos los Movimientos 👇
                             </button>
                         )}
