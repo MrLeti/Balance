@@ -329,9 +329,8 @@ export default function DashboardData() {
                     <div style={{ display: "flex", gap: "8px" }}>
                         {selectedCategory && (
                             <button
-                                className={styles.addBtn}
+                                className={styles.backBtn}
                                 onClick={() => setSelectedCategory(null)}
-                                style={{ padding: "4px 12px", fontSize: "0.85rem" }}
                             >
                                 🔙 Volver
                             </button>

@@ -230,3 +230,27 @@
 .loadMoreBtn:hover {
     background: var(--glass-border);
 }
+
+.backBtn {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    padding: 6px 14px;
+    border-radius: 99px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+}
+
+.backBtn:hover {
+    background: var(--glass-border);
+    transform: translateY(-1px);
+}
+
+.backBtn:active {
+    transform: translateY(1px);
+}

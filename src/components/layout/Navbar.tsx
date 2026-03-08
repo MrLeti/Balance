@@ -12,7 +12,9 @@ export default function Navbar() {
         <nav className={styles.navbar}>
             <div className={styles.container}>
                 <div className={styles.logo}>
-                    <span className={styles.icon}>🪴</span>
+                    <span className={styles.icon}>
+                        <Image src="/icon-192x192.png" unoptimized alt="Vesta Logo" width={28} height={28} style={{ borderRadius: '50%', display: 'flex' }} priority />
+                    </span>
                     <h2>Vesta</h2>
                 </div>
 

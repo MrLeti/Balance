@@ -136,6 +136,7 @@ export default function SankeyChart({ data, isDark }: { data: Exclude<any, null>
                 borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                 labels: nodeLabels, // Chartjs-sankey usa esto para cambiar el ID interno por el texto de display!
                 color: isDark ? '#ffffff' : '#0f172a', // Color intenso para alto contraste
+                nodePadding: 45, // <== Separación vertical vital
                 font: {
                     size: 13,
                     weight: 900
@@ -151,7 +152,7 @@ export default function SankeyChart({ data, isDark }: { data: Exclude<any, null>
     }
 
     return (
-        <div style={{ position: 'relative', width: '100%', minHeight: '350px' }}>
+        <div style={{ position: 'relative', width: '100%', minHeight: '450px' }}>
             <Chart type="sankey" data={sankeyData.chartData} options={{
                 responsive: true,
                 maintainAspectRatio: false,
