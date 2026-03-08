@@ -59,6 +59,9 @@ export default function DashboardData() {
     const [balanceMonth, setBalanceMonth] = useState<string>("Total");
     const [themeTrigger, setThemeTrigger] = useState(0);
 
+    const [compItem1, setCompItem1] = useState<string>("Salario");
+    const [compItem2, setCompItem2] = useState<string>("Alquiler");
+
     useEffect(() => {
         const observer = new MutationObserver(() => setThemeTrigger(prev => prev + 1));
         observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
@@ -122,31 +125,70 @@ export default function DashboardData() {
     };
 
     const availableMonths = useMemo(() => {
-        const months = new Set<string>();
+        const periods = new Set<string>();
         data.forEach(row => {
             if (row.length > 1) {
                 const dateStr = row[1];
                 if (dateStr && typeof dateStr === 'string') {
                     const parts = dateStr.split("/");
                     if (parts.length >= 3) {
-                        months.add(`${parts[1]}/${parts[2]}`);
+                        periods.add(`${parts[1]}/${parts[2]}`);
+                        periods.add(`${parts[2]}`);
                     }
                 }
             }
         });
-        return Array.from(months).sort((a, b) => {
-            const [mA, yA] = a.split("/");
-            const [mB, yB] = b.split("/");
+        return Array.from(periods).sort((a, b) => {
+            const isYearA = a.length === 4;
+            const isYearB = b.length === 4;
+            const yA = parseInt(isYearA ? a : a.split("/")[1], 10) || 0;
+            const yB = parseInt(isYearB ? b : b.split("/")[1], 10) || 0;
 
-            // Verificación segura IsNaN de los periodos
-            const numYA = parseInt(yA, 10) || 0;
-            const numYB = parseInt(yB, 10) || 0;
-            if (numYA !== numYB) return numYB - numYA;
+            if (yA !== yB) return yB - yA;
 
-            const numMA = parseInt(mA, 10) || 0;
-            const numMB = parseInt(mB, 10) || 0;
+            if (isYearA && !isYearB) return -1;
+            if (!isYearA && isYearB) return 1;
+
+            const numMA = parseInt(a.split("/")[0], 10) || 0;
+            const numMB = parseInt(b.split("/")[0], 10) || 0;
             return numMB - numMA;
         });
+    }, [data]);
+
+    const { availableCompItems, groupedCompItems, subCatToCatMap, itemTypeMap } = useMemo(() => {
+        const items = new Set<string>();
+        const map: Record<string, string> = {};
+        const types: Record<string, string> = {};
+        const groups: Record<string, Set<string>> = {};
+
+        data.forEach(row => {
+            if (row.length < 5) return;
+            const type = String(row[2]);
+            const category = String(row[3]);
+            const subCategory = String(row[4]);
+
+            if (category) {
+                items.add(category);
+                types[category] = type;
+                if (!groups[category]) groups[category] = new Set<string>();
+            }
+            if (subCategory) {
+                items.add(subCategory);
+                map[subCategory] = category;
+                types[subCategory] = type;
+                if (category) {
+                    if (!groups[category]) groups[category] = new Set<string>();
+                    groups[category].add(subCategory);
+                }
+            }
+        });
+
+        const groupedArray = Object.keys(groups).sort().map(cat => ({
+            category: cat,
+            subCategories: Array.from(groups[cat]).sort()
+        }));
+
+        return { availableCompItems: Array.from(items).sort(), groupedCompItems: groupedArray, subCatToCatMap: map, itemTypeMap: types };
     }, [data]);
 
     const filteredData = useMemo(() => {
@@ -157,8 +199,11 @@ export default function DashboardData() {
             if (typeof dateStr === 'string') {
                 const parts = dateStr.split("/");
                 if (parts.length >= 3) {
-                    const monthYear = `${parts[1]}/${parts[2]}`;
-                    return monthYear === balanceMonth;
+                    if (balanceMonth.length === 4) {
+                        return parts[2] === balanceMonth; // Filtro por Año entero
+                    } else {
+                        return `${parts[1]}/${parts[2]}` === balanceMonth; // Filtro estricto mes/año
+                    }
                 }
             }
             return false;
@@ -221,9 +266,17 @@ export default function DashboardData() {
         const catColors = ['#5E82D5', '#E0726B', '#7BBD9F', '#F1AD5C', '#8B5CF6', '#10B981', '#EC4899'];
         const allCategoriesEncountered = new Set<string>();
 
+        const isMonthlyAggregated = balanceMonth === "Total" || balanceMonth.length === 4;
+
         filteredData.forEach(row => {
             if (row.length < 6) return;
-            const dateStr = String(row[1]);
+            const rawDateStr = String(row[1]);
+            const dateParts = rawDateStr.split("/");
+
+            const dateStr = (isMonthlyAggregated && dateParts.length >= 3)
+                ? `${dateParts[1]}/${dateParts[2]}`
+                : rawDateStr;
+
             const type = row[2];
             const category = String(row[3]);
             const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
@@ -287,6 +340,62 @@ export default function DashboardData() {
 
         return { labels, datasets };
     }, [filteredData, lineFilter]);
+
+    const compLineData = useMemo(() => {
+        const dailyData: Record<string, { a: number, b: number }> = {};
+        const isMonthlyAggregated = balanceMonth === "Total" || balanceMonth.length === 4;
+
+        filteredData.forEach(row => {
+            if (row.length < 6) return;
+            const rawDateStr = String(row[1]);
+            const dateParts = rawDateStr.split("/");
+
+            const dateStr = (isMonthlyAggregated && dateParts.length >= 3)
+                ? `${dateParts[1]}/${dateParts[2]}`
+                : rawDateStr;
+
+            const category = String(row[3]);
+            const subCategory = String(row[4]);
+            const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+
+            if (!dailyData[dateStr]) dailyData[dateStr] = { a: 0, b: 0 };
+
+            if (category === compItem1 || subCategory === compItem1) dailyData[dateStr].a += Math.abs(val);
+            if (category === compItem2 || subCategory === compItem2) dailyData[dateStr].b += Math.abs(val);
+        });
+
+        const labels = Object.keys(dailyData);
+
+        const getColor = (item: string, fallbackColor: string) => {
+            const cat = subCatToCatMap[item] || item;
+            if (CATEGORY_COLORS[cat]) return CATEGORY_COLORS[cat];
+            if (itemTypeMap[item] === "Ingreso") return '#22c55e';
+            if (itemTypeMap[item] === "Egreso") return '#ef4444';
+            return fallbackColor;
+        };
+
+        const color1 = getColor(compItem1, '#8b5cf6');
+        const color2 = getColor(compItem2, '#ec4899');
+
+        const datasets = [
+            {
+                label: compItem1,
+                data: labels.map(l => dailyData[l].a),
+                borderColor: color1,
+                backgroundColor: color1,
+                tension: 0.3
+            },
+            {
+                label: compItem2,
+                data: labels.map(l => dailyData[l].b),
+                borderColor: color2,
+                backgroundColor: color2,
+                tension: 0.3
+            }
+        ];
+
+        return { labels, datasets };
+    }, [filteredData, compItem1, compItem2, balanceMonth, subCatToCatMap, itemTypeMap]);
 
     const recentTx = useMemo(() => {
         const reversed = [...filteredData].reverse();
@@ -487,7 +596,63 @@ export default function DashboardData() {
                 </div>
             </section>
 
-
+            {/* Comparación Personalizada */}
+            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
+                <div className={styles.headerWithTabs}>
+                    <h3 className="text-muted">Comparativa Personalizada</h3>
+                    <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                        <select
+                            className={styles.miniSelect}
+                            value={compItem1}
+                            onChange={(e) => setCompItem1(e.target.value)}
+                        >
+                            {groupedCompItems.map(group => (
+                                <optgroup key={`g1-${group.category}`} label={`📁 ${group.category}`}>
+                                    <option value={group.category}>Toda la categoría</option>
+                                    {group.subCategories.map(sub => (
+                                        <option key={`s1-${sub}`} value={sub}>↳ {sub}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
+                        <span className="text-muted" style={{ fontWeight: 'bold' }}>vs</span>
+                        <select
+                            className={styles.miniSelect}
+                            value={compItem2}
+                            onChange={(e) => setCompItem2(e.target.value)}
+                        >
+                            {groupedCompItems.map(group => (
+                                <optgroup key={`g2-${group.category}`} label={`📁 ${group.category}`}>
+                                    <option value={group.category}>Toda la categoría</option>
+                                    {group.subCategories.map(sub => (
+                                        <option key={`s2-${sub}`} value={sub}>↳ {sub}</option>
+                                    ))}
+                                </optgroup>
+                            ))}
+                        </select>
+                    </div>
+                </div>
+                <div className={styles.lineChartArea}>
+                    {compLineData.labels.length > 0 ? (
+                        <Line
+                            data={compLineData}
+                            options={{
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { position: 'bottom', labels: { color: chartTextColor } }
+                                },
+                                scales: {
+                                    x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
+                                    y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
+                                }
+                            }}
+                        />
+                    ) : (
+                        <p className="text-muted text-center" style={{ marginTop: '20px' }}>No hay datos suficientes para comparar en este período.</p>
+                    )}
+                </div>
+            </section>
 
             {/* Movimientos List */}
             <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>

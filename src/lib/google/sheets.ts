@@ -63,7 +63,17 @@ export async function getRecentRowsConfig() {
         const rows = response.data.values;
         if (!rows || rows.length <= 1) return [];
 
-        return rows.slice(1);
+        const dataRows = rows.slice(1);
+
+        // Asignar IDs al vuelo a filas viejas que no lo tengan en la DB
+        // Para poder borrarlas en memoria, armamos un ID virtual predecible
+        return dataRows.map(row => {
+            if (!row[0] || String(row[0]).trim() === '') {
+                const rowPayload = row.slice(1).join("||");
+                return [`virt_${rowPayload}`, ...row.slice(1)];
+            }
+            return row;
+        });
     } catch (error) {
         console.error("Error al leer Google Sheets:", error);
         throw error;
@@ -89,12 +99,28 @@ export async function deleteRowFromSheetById(transactionId: string) {
 
         let rowIndexToDelete = -1;
 
+        // Si la row no tiene ID real en la BD, la única forma de borrarla 
+        // es parseando temporalmente la tx clickeada sin su UUID virtual autogenerado
+        // y comparando campo por campo.
+        const txSinIdVirtual = transactionId.replace(/^virt_/, ""); // Identificador propio para txs viejas
+
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
-            // Buscamos coincidencia de ID en la index 0 (Columna A)
+
+            // Caso 1: Tiene ID generado normalmente en la base de datos
             if (row.length >= 1 && row[0] === transactionId) {
                 rowIndexToDelete = i;
                 break;
+            }
+
+            // Caso 2: Es una fila vieja histórica sin ID (Columna A vacía)
+            // Chequeamos que la metadata coincida armando un "hash" rápido o serializandolo
+            if (!row[0] || String(row[0]).trim() === '') {
+                const rowWithoutId = row.slice(1).join("||");
+                if (rowWithoutId === txSinIdVirtual) {
+                    rowIndexToDelete = i;
+                    break;
+                }
             }
         }
 
