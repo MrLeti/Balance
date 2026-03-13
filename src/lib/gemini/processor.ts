@@ -10,17 +10,20 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-// Defensa: Forzamos la zona horaria a Argentina (GMT-3) independiente de dónde corra el Servidor / Vercel (Generalmente GMT+0 o EST), evitando desfases de días.
-const today = new Date();
-const formattedToday = new Intl.DateTimeFormat("es-AR", {
-    timeZone: "America/Argentina/Buenos_Aires",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
-}).format(today);
+// Defensa: Genera la fecha en zona horaria Argentina por cada request (no cacheada al importar)
+function getFormattedToday(): string {
+    return new Intl.DateTimeFormat("es-AR", {
+        timeZone: "America/Argentina/Buenos_Aires",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric"
+    }).format(new Date());
+}
 
 // Categorías del sistema según requerimientos
-const SYSTEM_INSTRUCTION = `
+function buildSystemInstruction(): string {
+    const formattedToday = getFormattedToday();
+    return `
 La fecha actual de hoy es: ${formattedToday}.
 Actúas como un procesador experto de tickets y facturas para una aplicación de finanzas personales.
 Tu tarea es analizar el texto otorgado o la imagen de la factura/ticket y extraer UNICAMENTE un arreglo en formato JSON con los ítems detectados.
@@ -55,6 +58,7 @@ Estructura deseada del JSON (Array):
   }
 ]
 `;
+}
 
 export async function processFinanceTextOrImage(
     text: string,
@@ -62,6 +66,7 @@ export async function processFinanceTextOrImage(
     mimeType?: string
 ) {
     try {
+        const SYSTEM_INSTRUCTION = buildSystemInstruction();
         const parts: (string | Part)[] = [{ text: SYSTEM_INSTRUCTION + "\n\nEntrada del usuario: " + text }];
 
         if (base64Image && mimeType) {

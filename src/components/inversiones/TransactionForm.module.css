@@ -1,0 +1,282 @@
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* ─── Type Toggle ─── */
+.typeToggle {
+    display: flex;
+    gap: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+    width: fit-content;
+}
+
+.typeBtn {
+    padding: 10px 24px;
+    border: none;
+    background: var(--bg-color);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.typeBtn:hover {
+    background: var(--glass-bg);
+}
+
+.typeBtnActiveBuy {
+    background: var(--success-color);
+    color: #fff;
+}
+
+.typeBtnActiveBuy:hover {
+    background: var(--success-color);
+}
+
+.typeBtnActiveSell {
+    background: var(--danger-color);
+    color: #fff;
+}
+
+.typeBtnActiveSell:hover {
+    background: var(--danger-color);
+}
+
+/* ─── Fields Grid ─── */
+.fieldsGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+@media (max-width: 768px) {
+    .fieldsGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .fieldsGrid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
+}
+
+.label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.input {
+    background: var(--bg-color);
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-family: inherit;
+    font-size: 0.95rem;
+    color: var(--text-main);
+    transition: all 0.2s;
+    width: 100%;
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+/* ─── Autocomplete ─── */
+.autocompleteWrapper {
+    position: relative;
+}
+
+.dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    padding: 4px;
+    list-style: none;
+    margin: 0;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.dropdownItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.dropdownItem:hover,
+.dropdownItemHighlighted {
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.dropdownTicker {
+    font-weight: 700;
+    font-size: 0.9rem;
+    min-width: 52px;
+    color: var(--text-main);
+}
+
+.dropdownName {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dropdownType {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 99px;
+    white-space: nowrap;
+}
+
+.dropdownTypeAcciones  { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+.dropdownTypeCripto    { background: rgba(245, 158, 11, 0.12); color: #d97706; }
+.dropdownTypeETFs      { background: rgba(139, 92, 246, 0.12); color: #7c3aed; }
+.dropdownTypeCedears   { background: rgba(34, 197, 94, 0.12);  color: #16a34a; }
+
+/* ─── Bottom Row: Cartera + Comentario ─── */
+.bottomRow {
+    display: flex;
+    gap: 16px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.fieldGrow {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* ─── Cartera Toggle ─── */
+.carteraToggle {
+    display: flex;
+    gap: 0;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+}
+
+.carteraBtn {
+    padding: 9px 16px;
+    border: none;
+    background: var(--bg-color);
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.carteraBtn:hover {
+    background: var(--glass-bg);
+}
+
+.carteraBtnActive {
+    background: var(--accent-color);
+    color: #fff;
+    font-weight: 600;
+}
+
+.carteraBtnActive:hover {
+    background: var(--accent-hover);
+}
+
+/* ─── Total Row ─── */
+.totalRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 12px;
+    background: var(--bg-color);
+    border: 1px solid var(--glass-border);
+}
+
+.totalLabel {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.totalValue {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.totalSell {
+    color: var(--danger-color);
+}
+
+/* ─── Error ─── */
+.error {
+    color: var(--danger-color);
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.08);
+}
+
+/* ─── Submit Button ─── */
+.submitBtn {
+    background: var(--text-main);
+    color: var(--bg-color);
+    border: none;
+    padding: 12px 28px;
+    border-radius: 99px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    align-self: flex-end;
+}
+
+.submitBtn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.submitBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

@@ -4,6 +4,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import styles from "./Navbar.module.css";
 import Image from "next/image";
 import ThemeToggle from "./ThemeToggle";
+import Link from "next/link";
 
 export default function Navbar() {
     const { data: session, status } = useSession();
@@ -15,10 +16,19 @@ export default function Navbar() {
                     <span className={styles.icon}>
                         <Image src="/icon-192x192.png" unoptimized alt="Vesta Logo" width={28} height={28} style={{ borderRadius: '50%', display: 'flex' }} priority />
                     </span>
-                    <h2>Vesta</h2>
+                    <Link href="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+                        <h2>Vesta</h2>
+                    </Link>
                 </div>
 
                 <div className={styles.actions}>
+                    {session && (
+                        <nav style={{ display: 'flex', gap: '16px', marginRight: '16px', alignItems: 'center' }}>
+                            <Link href="/" className={styles.navLink}>Balance</Link>
+                            <Link href="/cuotas" className={styles.navLink}>Cuotas</Link>
+                            <Link href="/inversiones" className={styles.navLink}>Inversiones</Link>
+                        </nav>
+                    )}
                     <ThemeToggle />
                     {status === "loading" ? (
                         <div className={styles.skeleton}></div>

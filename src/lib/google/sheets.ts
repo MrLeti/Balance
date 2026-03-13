@@ -30,7 +30,7 @@ export async function appendMultipleRowsToSheet(valuesArray: (string | number)[]
 
         const response = await sheets.spreadsheets.values.append({
             spreadsheetId: sheetId,
-            range: "A:G", // Ahora abarca la columna G
+            range: "A:H", // Ahora abarca la columna H (ID Cuota)
             valueInputOption: "USER_ENTERED",
             requestBody: {
                 values: valuesArray,
@@ -56,7 +56,7 @@ export async function getRecentRowsConfig() {
         // Leemos las primeras 500 filas para que nos sirva para los últimos movimientos y gráficos
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: "A:G", // Incluimos hasta la G
+            range: "A:H", // Incluimos hasta la H
         });
 
         // Filtramos la primera fila (los títulos)
@@ -91,7 +91,7 @@ export async function deleteRowFromSheetById(transactionId: string) {
 
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId: sheetId,
-            range: "A:G",
+            range: "A:H",
         });
 
         const rows = response.data.values;

@@ -29,9 +29,11 @@ export async function POST(req: NextRequest) {
             return [transactionId, ...sanitizedRow];
         });
 
+        const insertedIds = cleanItems.map(row => row[0]);
+
         await appendMultipleRowsToSheet(cleanItems);
 
-        return NextResponse.json({ success: true, count: cleanItems.length });
+        return NextResponse.json({ success: true, count: cleanItems.length, ids: insertedIds });
     } catch (error: unknown) {
         console.error("Error escribiendo transacciones:", error);
         return NextResponse.json(

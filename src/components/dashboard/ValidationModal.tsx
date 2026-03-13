@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import styles from "./ValidationModal.module.css";
 import { CATEGORIES, ExtractedItem } from "@/lib/constants";
 
@@ -16,6 +16,29 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
     );
     const [isSaving, setIsSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    // Instalment mode state
+    const [isInstalmentMode, setIsInstalmentMode] = useState(false);
+    const [instalmentConcept, setInstalmentConcept] = useState("");
+    const [instalmentsCount, setInstalmentsCount] = useState("1");
+    const [startMonth, setStartMonth] = useState("");
+    const [tarjetas, setTarjetas] = useState<{ id: string, nombre: string }[]>([]);
+    const [selectedTarjeta, setSelectedTarjeta] = useState("");
+
+    // Initialize start month
+    useEffect(() => {
+        const date = new Date();
+        date.setMonth(date.getMonth() + 1);
+        const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+        const yyyy = date.getFullYear();
+        setStartMonth(`${mm}/${yyyy}`);
+
+        fetch("/api/tarjetas").then(r => r.json()).then(d => {
+            if (d.data) {
+                setTarjetas(d.data);
+            }
+        }).catch(e => console.error(e));
+    }, []);
 
     const allConfirmed = editableItems.every((i) => i.isConfirmed);
     const someConfirmed = editableItems.some((i) => i.isConfirmed);
@@ -72,11 +95,54 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
         return editableItems.filter(i => i.isConfirmed).reduce((acc, curr) => acc + parseAmount(curr.Monto), 0).toFixed(2);
     };
 
-    const handleSave = async () => {
+    const handleEnableInstalmentMode = () => {
+        const confirmed = editableItems.filter(i => i.isConfirmed);
+        if (confirmed.length === 0) return;
+
+        let initialConcept = "Varias compras";
+        if (confirmed.length === 1) {
+            initialConcept = confirmed[0].Comentario || confirmed[0].Subcategoría || "Compra";
+        }
+        setInstalmentConcept(initialConcept);
+        setIsInstalmentMode(true);
+    };
+
+    const handleSave = async (withInstalment = false) => {
         if (!someConfirmed) return;
         setIsSaving(true);
         try {
-            // Formato para enviar a Google Sheets: [Fecha, Tipo, Categoría, Subcategoría, Monto, Comentario]
+            let cuotaId = "";
+
+            // 1. Si eligió pago en cuotas, creamos PRIMERO la cuota para obtener su ID
+            if (withInstalment) {
+                const totalAmountStr = calculateConfirmedTotal();
+                const totalAmount = parseFloat(totalAmountStr);
+
+                const today = new Date();
+                const dd = today.getDate().toString().padStart(2, '0');
+                const mm = (today.getMonth() + 1).toString().padStart(2, '0');
+                const yyyy = today.getFullYear();
+
+                const cuotaRes = await fetch("/api/cuotas", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        date: `${dd}/${mm}/${yyyy}`,
+                        concept: instalmentConcept,
+                        totalAmount: totalAmount,
+                        instalmentsCount: parseInt(instalmentsCount),
+                        startMonth,
+                        tarjeta: selectedTarjeta
+                    })
+                });
+
+                if (!cuotaRes.ok) throw new Error("Fallo al crear la estructura de Cuotas.");
+
+                const cuotaData = await cuotaRes.json();
+                cuotaId = cuotaData.id;
+            }
+
+            // 2. Formato para enviar a Google Sheets: [Fecha, Tipo, Categoría, Subcategoría, Monto, Comentario, ID Cuota]
             const rowsToInsert = editableItems.filter(i => i.isConfirmed).map((item) => [
                 item.Fecha,
                 item.Tipo,
@@ -84,6 +150,7 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                 item.Subcategoría,
                 parseAmount(item.Monto),
                 item.Comentario,
+                cuotaId // Se agregará en la columna H (7mo elemento de los datos devueltos listos para sheets, 8vo contando ID original en el backend)
             ]);
 
             const res = await fetch("/api/transactions", {
@@ -92,7 +159,7 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                 body: JSON.stringify({ items: rowsToInsert }),
             });
 
-            if (!res.ok) throw new Error("Fallo al guardar en Sheets");
+            if (!res.ok) throw new Error("Fallo al guardar en Sheets (Transacciones)");
 
             onSuccess();
             window.dispatchEvent(new Event("transaction_added"));
@@ -113,7 +180,57 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                 </div>
 
                 <div className={styles.scrollArea}>
-                    {editableItems.length === 0 ? (
+                    {isInstalmentMode ? (
+                        <div className={styles.instalmentSetup}>
+                            <h3 style={{ marginBottom: 16 }}>Configurar Cuotas</h3>
+                            <p style={{ marginBottom: 24, color: 'var(--text-muted)' }}>
+                                El monto total <strong>${calculateConfirmedTotal()}</strong> se registrará hoy como devengado, y se proyectará en pagos futuros en tu dashboard de Cuotas.
+                            </p>
+
+                            <div className={styles.formGrid}>
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label}>Concepto</label>
+                                    <input
+                                        type="text"
+                                        className={styles.inputStyle}
+                                        value={instalmentConcept}
+                                        onChange={e => setInstalmentConcept(e.target.value)}
+                                    />
+                                </div>
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label}>Cantidad de Cuotas</label>
+                                    <input
+                                        type="number"
+                                        min="1" max="72"
+                                        className={styles.inputStyle}
+                                        value={instalmentsCount}
+                                        onChange={e => setInstalmentsCount(e.target.value)}
+                                    />
+                                </div>
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label}>Tarjeta (Opcional)</label>
+                                    <select
+                                        className={styles.inputStyle}
+                                        value={selectedTarjeta}
+                                        onChange={e => setSelectedTarjeta(e.target.value)}
+                                    >
+                                        <option value="">- Ninguna / General -</option>
+                                        {tarjetas.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                                    </select>
+                                </div>
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label}>Mes de Inicio (MM/YYYY)</label>
+                                    <input
+                                        type="text"
+                                        className={styles.inputStyle}
+                                        value={startMonth}
+                                        onChange={e => setStartMonth(e.target.value)}
+                                        pattern="(0[1-9]|1[0-2])\/20[0-9]{2}"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    ) : editableItems.length === 0 ? (
                         <p className={styles.emptyMsg}>No se detectaron ítems válidos.</p>
                     ) : (
                         <table className={styles.table}>
@@ -246,20 +363,49 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                         <span className={styles.totalsValue} style={{ color: 'var(--success-color)' }}>${calculateConfirmedTotal()}</span>
                     </div>
                     <div className={styles.actions}>
-                        <button
-                            className={styles.cancelBtn}
-                            onClick={onClose}
-                            disabled={isSaving}
-                        >
-                            Cancelar
-                        </button>
-                        <button
-                            className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
-                            disabled={!someConfirmed || isSaving || editableItems.length === 0}
-                            onClick={handleSave}
-                        >
-                            {isSaving ? "Guardando..." : "Confirmar Seleccionados"}
-                        </button>
+                        {isInstalmentMode ? (
+                            <>
+                                <button
+                                    className={styles.cancelBtn}
+                                    onClick={() => setIsInstalmentMode(false)}
+                                    disabled={isSaving}
+                                >
+                                    Volver
+                                </button>
+                                <button
+                                    className={styles.saveBtn}
+                                    disabled={isSaving || !instalmentConcept || !instalmentsCount || !startMonth}
+                                    onClick={() => handleSave(true)}
+                                >
+                                    {isSaving ? "Guardando..." : "Confirmar Compra + Cuotas"}
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    className={styles.cancelBtn}
+                                    onClick={onClose}
+                                    disabled={isSaving}
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    className={someConfirmed ? styles.instalmentBtn : styles.saveBtnDisabled}
+                                    disabled={!someConfirmed || isSaving || editableItems.length === 0}
+                                    onClick={handleEnableInstalmentMode}
+                                    style={{ backgroundColor: 'var(--accent-color)', color: 'white' }}
+                                >
+                                    Pagar en Cuotas
+                                </button>
+                                <button
+                                    className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
+                                    disabled={!someConfirmed || isSaving || editableItems.length === 0}
+                                    onClick={() => handleSave(false)}
+                                >
+                                    {isSaving ? "Guardando..." : "Confirmar"}
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>

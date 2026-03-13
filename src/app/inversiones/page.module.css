@@ -1,0 +1,22 @@
+.container {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboardContainer {
+    max-width: 1200px;
+    width: 90%;
+    margin: 32px auto;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+@media (max-width: 600px) {
+    .dashboardContainer {
+        width: 95%;
+        margin: 16px auto;
+        gap: 16px;
+    }
+}
