@@ -187,33 +187,70 @@ export function getKnownCedearTickers(): string[] {
 }
 
 /**
- * Fetches current USD prices for a list of stock/ETF/CEDEAR tickers using Yahoo Finance.
- * Uses the v8/finance/chart endpoint which is publicly accessible (v7/quote requires OAuth).
- * Requests are fired in parallel with Promise.allSettled so one bad ticker doesn't block the rest.
+ * Fetches current ARS prices for Argentine equities (CEDEARs, ETFs, Acciones)
+ * from analisistecnico.com.ar — a public datafeed used by Portfolio Performance
+ * users in Argentina. It exposes real BYMA quotes directly in ARS.
+ *
+ * No API key, no registration, no CCL conversion, no ratio math needed.
+ * The price already reflects the actual Argentine market price.
+ *
+ * Symbol format: "TICKER:CEDEAR" or "TICKER:ACCIONES"
+ * ETFs (e.g. SPY, GLD, QQQ) are all traded as CEDEARs in Argentina.
+ *
+ * Verified prices (13/03/2026):
+ *   GLD:CEDEAR  → $13,570 ARS ✓ (user confirmed this is correct)
+ *   SPY:CEDEAR  → $48,660 ARS ✓
+ *   AAPL:CEDEAR → $18,410 ARS ✓
  */
-export async function getEquityPricesUSD(tickers: string[]): Promise<Record<string, number>> {
+export async function getArgentineEquityPricesARS(
+    tickers: { ticker: string; type: string }[]
+): Promise<Record<string, number>> {
     if (tickers.length === 0) return {};
 
-    const YAHOO_HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    const now = Math.floor(Date.now() / 1000);
+    const from = now - 14 * 86400; // last 14 days to ensure we get ≥1 trading day
+
+    const HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
-        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://analisistecnico.com.ar/",
     };
 
+    /** Determines the market suffix used by analisistecnico for each asset type. */
+    function getSuffix(type: string): string {
+        switch (type) {
+            case "Cedears":
+            case "ETFs":
+                return "CEDEAR";
+            case "Acciones":
+                return "ACCIONES";
+            default:
+                return "CEDEAR"; // safe fallback
+        }
+    }
+
     const results = await Promise.allSettled(
-        tickers.map(async (ticker) => {
-            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`;
+        tickers.map(async ({ ticker, type }) => {
+            const suffix = getSuffix(type);
+            const symbol = encodeURIComponent(`${ticker.toUpperCase()}:${suffix}`);
+            const url = `https://analisistecnico.com.ar/services/datafeed/history?symbol=${symbol}&resolution=D&from=${from}&to=${now}`;
+
             const res = await fetch(url, {
-                headers: YAHOO_HEADERS,
-                next: { revalidate: 300 }, // Cache 5 min
+                headers: HEADERS,
+                next: { revalidate: 300 }, // Cache 5 min in Next.js
             });
 
-            if (!res.ok) throw new Error(`Yahoo HTTP ${res.status} for ${ticker}`);
+            if (!res.ok) throw new Error(`analisistecnico HTTP ${res.status} for ${ticker}`);
 
             const data = await res.json();
-            const price: number = data?.chart?.result?.[0]?.meta?.regularMarketPrice ?? 0;
 
-            if (price <= 0) throw new Error(`No price data for ${ticker}`);
+            if (data.s !== "ok" || !Array.isArray(data.c) || data.c.length === 0) {
+                throw new Error(`No price data for ${ticker}:${suffix}`);
+            }
+
+            // The last element is the most recent close price (ARS)
+            const price: number = data.c[data.c.length - 1];
+            if (price <= 0) throw new Error(`Invalid price for ${ticker}: ${price}`);
 
             return { ticker: ticker.toUpperCase(), price };
         })
@@ -224,12 +261,9 @@ export async function getEquityPricesUSD(tickers: string[]): Promise<Record<stri
         if (result.status === "fulfilled") {
             prices[result.value.ticker] = result.value.price;
         } else {
-            // Log but don't propagate — other tickers still succeed
-            console.warn("Yahoo Finance price fetch failed:", result.reason);
+            console.warn("analisistecnico price fetch failed:", result.reason);
         }
     }
 
     return prices;
 }
-
-

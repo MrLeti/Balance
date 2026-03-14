@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
-import { getCryptoPricesUSD, getDolarCCL, getCedearRatio, getEquityPricesUSD } from "@/lib/prices/api";
+import { getCryptoPricesUSD, getDolarCCL, getArgentineEquityPricesARS } from "@/lib/prices/api";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 /**
- * GET /api/investments/prices?assets=BTC,ETH,AAPL&types=Cripto,Cripto,Cedears
+ * GET /api/investments/prices?assets=BTC,ETH,GLD,SPY&types=Cripto,Cripto,ETFs,Cedears
  * Returns ARS prices for each asset based on its type.
- * - Cripto: CoinGecko (USD) → CCL → ARS
- * - Cedears/Acciones/ETFs: Yahoo Finance (USD) × CEDEAR ratio → CCL → ARS
+ *
+ * Cripto:           CoinGecko (USD) → CCL → ARS
+ * Cedears/ETFs:     analisistecnico.com.ar → ARS directo (precios BYMA reales)
+ * Acciones locales: analisistecnico.com.ar → ARS directo
  */
 export async function GET(req: Request) {
     try {
@@ -25,7 +27,7 @@ export async function GET(req: Request) {
         }
 
         const assets = assetsParam.split(",").map(a => a.trim().toUpperCase());
-        const types = typesParam.split(",").map(t => t.trim());
+        const types  = typesParam.split(",").map(t => t.trim());
 
         if (assets.length !== types.length) {
             return NextResponse.json({ error: "assets y types deben tener la misma longitud." }, { status: 400 });
@@ -33,47 +35,51 @@ export async function GET(req: Request) {
 
         // Separate by type
         const cryptoTickers: string[] = [];
-        const equityTickers: string[] = []; // Acciones, ETFs, Cedears
+        const equityPairs: { ticker: string; type: string }[] = [];
 
         for (let i = 0; i < assets.length; i++) {
             if (types[i] === "Cripto") {
                 cryptoTickers.push(assets[i]);
             } else {
-                equityTickers.push(assets[i]);
+                equityPairs.push({ ticker: assets[i], type: types[i] });
             }
         }
 
-        // Fetch prices in parallel — usamos allSettled para degradación parcial
+        // Fetch in parallel — graceful degradation via allSettled
         const warnings: string[] = [];
 
         const [cryptoResult, equityResult, cclResult] = await Promise.allSettled([
-            cryptoTickers.length > 0 ? getCryptoPricesUSD(cryptoTickers) : Promise.resolve({} as Record<string, number>),
-            equityTickers.length > 0 ? getEquityPricesUSD(equityTickers) : Promise.resolve({} as Record<string, number>),
+            cryptoTickers.length > 0
+                ? getCryptoPricesUSD(cryptoTickers)
+                : Promise.resolve({} as Record<string, number>),
+            equityPairs.length > 0
+                ? getArgentineEquityPricesARS(equityPairs)
+                : Promise.resolve({} as Record<string, number>),
             getDolarCCL(),
         ]);
 
-        const cryptoUSD = cryptoResult.status === "fulfilled" ? cryptoResult.value : {} as Record<string, number>;
+        const cryptoUSD = cryptoResult.status  === "fulfilled" ? cryptoResult.value  : {} as Record<string, number>;
         if (cryptoResult.status === "rejected") {
-            warnings.push("⚠️ No se pudieron obtener precios de criptomonedas (CoinGecko caído). Los valores de crypto no están actualizados.");
+            warnings.push("⚠️ No se pudieron obtener precios de criptomonedas (CoinGecko).");
             console.error("CoinGecko failed:", cryptoResult.reason);
         }
 
-        const equityUSD = equityResult.status === "fulfilled" ? equityResult.value : {} as Record<string, number>;
+        const equityARS = equityResult.status  === "fulfilled" ? equityResult.value  : {} as Record<string, number>;
         if (equityResult.status === "rejected") {
-            warnings.push("⚠️ No se pudieron obtener precios de acciones/ETFs (Yahoo Finance caído).");
-            console.error("Yahoo Finance failed:", equityResult.reason);
+            warnings.push("⚠️ No se pudieron obtener precios de CEDEARs/ETFs (analisistecnico.com.ar).");
+            console.error("analisistecnico failed:", equityResult.reason);
         }
 
         const cclRate = cclResult.status === "fulfilled" ? cclResult.value : 0;
         if (cclResult.status === "rejected") {
-            warnings.push("⚠️ No se pudo obtener el tipo de cambio CCL. Los valores en ARS de crypto no están disponibles.");
+            warnings.push("⚠️ No se pudo obtener el tipo de cambio CCL.");
             console.error("DolarCCL failed:", cclResult.reason);
         }
 
-        // Build price map in ARS
+        // Build response
         const prices: Record<string, { ars: number; usd: number; source: string }> = {};
 
-        // Crypto: USD → ARS via CCL
+        // Crypto: USD × CCL → ARS
         for (const ticker of cryptoTickers) {
             const usdPrice = cryptoUSD[ticker] || 0;
             prices[ticker] = {
@@ -83,33 +89,20 @@ export async function GET(req: Request) {
             };
         }
 
-        // Equities: solo referencia USD. El usuario ingresa el precio ARS manualmente.
-        for (let i = 0; i < assets.length; i++) {
-            const ticker = assets[i];
-            const type = types[i];
-
-            if (type === "Cripto") continue;
-
-            const usdPrice = equityUSD[ticker] || 0;
-
+        // Equities: precio directo en ARS desde analisistecnico (BYMA)
+        for (const { ticker } of equityPairs) {
+            const arsPrice = equityARS[ticker] || 0;
             prices[ticker] = {
-                usd: usdPrice,
-                ars: 0,
-                source: usdPrice > 0 ? "Yahoo Finance (USD ref)" : "no_data",
+                usd: 0,          // no necesitamos el USD para nada — el ARS ya es correcto
+                ars: arsPrice,
+                source: arsPrice > 0 ? "BYMA (analisistecnico)" : "no_data",
             };
         }
 
-        return NextResponse.json({
-            prices,
-            cclRate,
-            warnings,
-            timestamp: new Date().toISOString(),
-        });
+        return NextResponse.json({ prices, cclRate, warnings, timestamp: new Date().toISOString() });
+
     } catch (error: unknown) {
         console.error("Error fetching prices:", error);
-        return NextResponse.json(
-            { error: "Error al obtener precios." },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: "Error al obtener precios." }, { status: 500 });
     }
 }

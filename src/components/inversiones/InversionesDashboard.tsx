@@ -96,22 +96,15 @@ export default function InversionesDashboard() {
                         const priceJson = await priceRes.json();
                         const livePrices: Record<string, number> = {};
                         const liveSources: Record<string, string> = {};
-                        const liveUSD: Record<string, number> = {};
                         for (const [ticker, data] of Object.entries(priceJson.prices)) {
                             const p = data as { ars: number; usd: number; source: string };
                             if (p.ars > 0) {
-                                // Crypto: has a valid ARS price → use for P&L
                                 livePrices[ticker] = p.ars;
                                 liveSources[ticker] = p.source;
-                            }
-                            if (p.usd > 0) {
-                                // All assets: store USD as reference
-                                liveUSD[ticker] = p.usd;
                             }
                         }
                         setCurrentPrices(prev => ({ ...prev, ...livePrices }));
                         setPriceSources(prev => ({ ...prev, ...liveSources }));
-                        setPriceUSD(prev => ({ ...prev, ...liveUSD }));
                     }
                 } catch {
                     // Continue without live prices
@@ -411,17 +404,13 @@ export default function InversionesDashboard() {
                                                     onClick={() => handlePriceEdit(h.asset)}
                                                     title={
                                                         h.currentPrice > 0 && priceSources[h.asset]
-                                                            ? `Fuente: ${priceSources[h.asset]} — Click para editar`
-                                                            : priceUSD[h.asset]
-                                                                ? `Ref. Yahoo Finance: USD ${priceUSD[h.asset].toFixed(2)} — Ingresá el precio ARS de tu broker`
-                                                                : "Click para ingresar precio en ARS"
+                                                            ? `Fuente: ${priceSources[h.asset]} — Click para editar manualmente`
+                                                            : "Click para ingresar precio ARS"
                                                     }
                                                 >
                                                     {h.currentPrice > 0
                                                         ? `$${fmt(h.currentPrice)}`
-                                                        : priceUSD[h.asset]
-                                                            ? <><span>ARS</span><span className={styles.usdHint}>↳ USD {priceUSD[h.asset].toFixed(2)}</span></>
-                                                            : "Ingresar ARS"
+                                                        : "Ingresar ARS"
                                                     }
                                                     {h.currentPrice > 0 && priceSources[h.asset]
                                                         ? <span className={styles.liveIcon} title={priceSources[h.asset]}>●</span>

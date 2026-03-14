@@ -52,12 +52,14 @@ const SUBCATEGORY_EMOJIS: Record<string, string> = {
 export default function DashboardData() {
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<(string | number)[][]>([]);
+    const [fetchError, setFetchError] = useState<string | null>(null);
     const [txLimit, setTxLimit] = useState(10);
     const [pieFilter, setPieFilter] = useState<"Egreso" | "Ingreso">("Egreso");
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [lineFilter, setLineFilter] = useState<"Comparativo" | "Balance" | "Categorias">("Comparativo");
     const [balanceMonth, setBalanceMonth] = useState<string>("Total");
     const [themeTrigger, setThemeTrigger] = useState(0);
+    const [searchTerm, setSearchTerm] = useState<string>("");
 
     const [compItem1, setCompItem1] = useState<string>("Salario");
     const [compItem2, setCompItem2] = useState<string>("Alquiler");
@@ -96,14 +98,21 @@ export default function DashboardData() {
     const fetchData = async () => {
         try {
             const res = await fetch("/api/dashboard");
+            if (res.status === 401) {
+                setFetchError("Sesión expirada. Recargá la página o volvé a iniciar sesión.");
+                setLoading(false);
+                return;
+            }
             if (!res.ok) throw new Error("Error fetching");
             const json = await res.json();
             const sortedData = (json.data || []).sort((a: string[], b: string[]) => {
                 return parseArgentineDate(a[1]) - parseArgentineDate(b[1]);
             });
+            setFetchError(null);
             setData(sortedData);
         } catch (e) {
             console.error(e);
+            setFetchError("Error al conectar con el servidor. Verificá tu conexión.");
         } finally {
             setLoading(false);
         }
@@ -398,9 +407,19 @@ export default function DashboardData() {
     }, [filteredData, compItem1, compItem2, balanceMonth, subCatToCatMap, itemTypeMap]);
 
     const recentTx = useMemo(() => {
-        const reversed = [...filteredData].reverse();
-        return reversed.slice(0, txLimit);
-    }, [filteredData, txLimit]);
+        let results = [...filteredData].reverse();
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            results = results.filter(row => {
+                // Buscar en: fecha(1), tipo(2), categoría(3), subcategoría(4), monto(5), comentario(6)
+                for (let i = 1; i <= 6 && i < row.length; i++) {
+                    if (String(row[i]).toLowerCase().includes(term)) return true;
+                }
+                return false;
+            });
+        }
+        return results.slice(0, txLimit);
+    }, [filteredData, txLimit, searchTerm]);
 
     const handleDelete = async (tx: (string | number)[]) => {
         if (!window.confirm("¿Seguro que querés eliminar este movimiento?")) return;
@@ -427,6 +446,25 @@ export default function DashboardData() {
                 <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
                 <div className={styles.skeletonCard}></div>
                 <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
+            </div>
+        );
+    }
+
+    if (fetchError) {
+        return (
+            <div className={`glass-panel ${styles.card} ${styles.colSpanFull}`} style={{ textAlign: 'center', padding: '60px 24px' }}>
+                <p style={{ fontSize: '2rem', marginBottom: '16px' }}>⚠️</p>
+                <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>No se pudieron cargar los datos</h3>
+                <p className="text-muted" style={{ marginBottom: '24px' }}>{fetchError}</p>
+                <button
+                    onClick={() => { setLoading(true); setFetchError(null); fetchData(); }}
+                    style={{
+                        background: 'var(--accent-color)', color: '#fff', border: 'none',
+                        padding: '10px 28px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer'
+                    }}
+                >
+                    Reintentar
+                </button>
             </div>
         );
     }
@@ -659,6 +697,13 @@ export default function DashboardData() {
                 <div className={styles.headerWithTabs} style={{ marginBottom: "16px" }}>
                     <h3 className="text-muted">Historial de Movimientos</h3>
                 </div>
+                <input
+                    type="text"
+                    className={styles.searchInput}
+                    placeholder="🔍 Buscar movimiento..."
+                    value={searchTerm}
+                    onChange={e => setSearchTerm(e.target.value)}
+                />
 
                 {recentTx.length === 0 ? (
                     <p className="text-muted text-center" style={{ marginTop: "20px" }}>No hay nada registrado aún.</p>
