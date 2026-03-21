@@ -31,6 +31,9 @@ export default function CuotasDashboard() {
     const [tarjetas, setTarjetas] = useState<{ id: string, nombre: string }[]>([]);
     const [selectedTarjeta, setSelectedTarjeta] = useState("");
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    
+    // Summary next-month filter state
+    const [nextMonthFilter, setNextMonthFilter] = useState("Total");
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -123,7 +126,7 @@ export default function CuotasDashboard() {
         }
     };
 
-    const { projections, totalDebt, monthlyData } = useMemo(() => {
+    const { projections, totalDebt, monthlyData, nextMonthTotal, nextMonthKey } = useMemo(() => {
         const projs = calculateProjectedPayments(instalments, pagos);
         // Debt pending is the sum of all future unpaid projections
         const debt = projs.reduce((acc, curr) => acc + curr.amount, 0);
@@ -135,8 +138,29 @@ export default function CuotasDashboard() {
             grouped[p.monthKey] += p.amount;
         });
 
-        return { projections: projs, totalDebt: debt, monthlyData: grouped };
-    }, [instalments, pagos]);
+        // Next month logic
+        let nextMonthTotal = 0;
+        const chronologicalMonths = Object.keys(grouped).sort((a, b) => {
+            const [ma, ya] = a.split('/').map(Number);
+            const [mb, yb] = b.split('/').map(Number);
+            if (ya !== yb) return ya - yb;
+            return ma - mb;
+        });
+        
+        const nextMonthKey = chronologicalMonths.length > 0 ? chronologicalMonths[0] : null;
+
+        if (nextMonthKey) {
+            projs.forEach(p => {
+                if (p.monthKey === nextMonthKey) {
+                    if (nextMonthFilter === "Total" || p.tarjeta === nextMonthFilter) {
+                        nextMonthTotal += p.amount;
+                    }
+                }
+            });
+        }
+
+        return { projections: projs, totalDebt: debt, monthlyData: grouped, nextMonthTotal, nextMonthKey };
+    }, [instalments, pagos, nextMonthFilter]);
 
     const chartData = useMemo(() => {
         const labels = Object.keys(monthlyData);
@@ -187,11 +211,30 @@ export default function CuotasDashboard() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
 
             {/* Top Summaries */}
-            <div className={styles.summaryGrid}>
+            <div className={styles.summaryGrid} style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
                 <div className={styles.summaryCard}>
                     <span className={styles.summaryTitle}>Deuda Total Pendiente</span>
                     <span className={styles.summaryValue}>{fmt(totalDebt)}</span>
                 </div>
+                
+                <div className={styles.summaryCard} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span className={styles.summaryTitle} style={{ margin: 0 }}>Vence {nextMonthKey || "Próx. Mes"}</span>
+                        <select 
+                            style={{ 
+                                background: 'var(--bg-color)', border: '1px solid var(--glass-border)', 
+                                color: 'var(--text-main)', borderRadius: '6px', fontSize: '0.8rem', padding: '2px 6px', maxWidth: '100px'
+                            }}
+                            value={nextMonthFilter}
+                            onChange={e => setNextMonthFilter(e.target.value)}
+                        >
+                            <option value="Total">Total</option>
+                            {tarjetas.map(t => <option key={`nm-${t.id}`} value={t.nombre}>{t.nombre}</option>)}
+                        </select>
+                    </div>
+                    <span className={styles.summaryValue} style={{ color: "var(--danger-color)" }}>{fmt(nextMonthTotal)}</span>
+                </div>
+
                 <div className={styles.summaryCard}>
                     <span className={styles.summaryTitle}>Cuotas Activas</span>
                     <span className={styles.summaryValue} style={{ color: "var(--accent-color)" }}>{instalments.length}</span>

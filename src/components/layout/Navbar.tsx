@@ -5,9 +5,12 @@ import styles from "./Navbar.module.css";
 import Image from "next/image";
 import ThemeToggle from "./ThemeToggle";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 
 export default function Navbar() {
     const { data: session, status } = useSession();
+    const pathname = usePathname();
+    const router = useRouter();
 
     return (
         <nav className={styles.navbar}>
@@ -23,11 +26,25 @@ export default function Navbar() {
 
                 <div className={styles.actions}>
                     {session && (
-                        <nav style={{ display: 'flex', gap: '16px', marginRight: '16px', alignItems: 'center' }}>
-                            <Link href="/" className={styles.navLink}>Balance</Link>
-                            <Link href="/cuotas" className={styles.navLink}>Cuotas</Link>
-                            <Link href="/inversiones" className={styles.navLink}>Inversiones</Link>
-                        </nav>
+                        <>
+                            <nav className={styles.desktopNav}>
+                                <Link href="/" className={`${styles.navLink} ${pathname === "/" ? styles.activeNavLink : ""}`}>Balance</Link>
+                                <Link href="/cuotas" className={`${styles.navLink} ${pathname === "/cuotas" ? styles.activeNavLink : ""}`}>Cuotas</Link>
+                                <Link href="/inversiones" className={`${styles.navLink} ${pathname === "/inversiones" ? styles.activeNavLink : ""}`}>Inversiones</Link>
+                            </nav>
+                            
+                            <div className={styles.mobileNav}>
+                                <select 
+                                    className={styles.navSelect}
+                                    value={pathname}
+                                    onChange={(e) => router.push(e.target.value)}
+                                >
+                                    <option value="/">Balance</option>
+                                    <option value="/cuotas">Cuotas</option>
+                                    <option value="/inversiones">Invers.</option>
+                                </select>
+                            </div>
+                        </>
                     )}
                     <ThemeToggle />
                     {status === "loading" ? (

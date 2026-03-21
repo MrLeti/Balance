@@ -233,8 +233,21 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                     ) : editableItems.length === 0 ? (
                         <p className={styles.emptyMsg}>No se detectaron ítems válidos.</p>
                     ) : (
-                        <table className={styles.table}>
-                            <thead>
+                        <>
+                            <div className={styles.mobileSelectAll}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                                    <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Seleccionar todos los movimientos</span>
+                                    <input
+                                        type="checkbox"
+                                        className={styles.checkbox}
+                                        style={{ width: 24, height: 24 }}
+                                        checked={allConfirmed && editableItems.length > 0}
+                                        onChange={handleToggleAll}
+                                    />
+                                </label>
+                            </div>
+                            <table className={styles.table}>
+                                <thead>
                                 <tr>
                                     <th>Fecha</th>
                                     <th>Tipo</th>
@@ -351,6 +364,7 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                                 })}
                             </tbody>
                         </table>
+                        </>
                     )}
                 </div>
 

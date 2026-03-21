@@ -49,6 +49,7 @@ export interface PortfolioHistoryPoint {
     date: string;       // "DD/MM/YYYY"
     invested: number;   // accumulated capital invested up to this date
     value: number;      // estimated value at this point (uses last known prices)
+    valueByCartera: Record<string, number>;
 }
 
 /* ─── Constants ─── */
@@ -101,13 +102,26 @@ function parseNum(value: unknown): number {
 // Row values from UNFORMATTED_VALUE can be string | number | boolean
 type SheetCell = string | number | boolean | null | undefined;
 
-/** Safely converts any Sheets cell to a string (for text fields). */
 const str = (v: SheetCell): string => (v === null || v === undefined ? "" : String(v));
+
+/** Parse Google Sheets dates or fallback to string */
+function parseDate(value: SheetCell): string {
+    if (typeof value === "number") {
+        // Base date is December 30, 1899
+        const baseDate = new Date(Date.UTC(1899, 11, 30));
+        const date = new Date(baseDate.getTime() + value * 24 * 60 * 60 * 1000);
+        const dd = String(date.getUTCDate()).padStart(2, '0');
+        const mm = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const yyyy = date.getUTCFullYear();
+        return `${dd}/${mm}/${yyyy}`;
+    }
+    return str(value);
+}
 
 export function parseSheetRow(row: SheetCell[]): InvestmentTransaction {
     return {
         id:         str(row[0]),
-        date:       str(row[1]),
+        date:       parseDate(row[1]),
         type:       (str(row[2]) as TransactionType) || "Compra",
         asset:      str(row[3]).toUpperCase(),
         assetType:  (str(row[4]) as AssetType)       || "Acciones",
@@ -299,6 +313,7 @@ export function getPortfolioHistory(
 
     const points: PortfolioHistoryPoint[] = [];
     const runningHoldings: Record<string, { qty: number; cost: number }> = {};
+    const runningHoldingsByCartera: Record<string, { qty: number; cost: number }> = {};
 
     // Group by date
     const dateGroups: Record<string, InvestmentTransaction[]> = {};
@@ -309,23 +324,37 @@ export function getPortfolioHistory(
 
     for (const [date, txs] of Object.entries(dateGroups)) {
         for (const tx of txs) {
+            // Global holdings
             if (!runningHoldings[tx.asset]) {
                 runningHoldings[tx.asset] = { qty: 0, cost: 0 };
             }
             const h = runningHoldings[tx.asset];
 
+            // Cartera holdings
+            const carteraKey = `${tx.asset}|${tx.cartera}`;
+            if (!runningHoldingsByCartera[carteraKey]) {
+                runningHoldingsByCartera[carteraKey] = { qty: 0, cost: 0 };
+            }
+            const hc = runningHoldingsByCartera[carteraKey];
+
             if (tx.type === "Compra") {
                 h.cost += tx.quantity * tx.unitPrice;
                 h.qty += tx.quantity;
+
+                hc.cost += tx.quantity * tx.unitPrice;
+                hc.qty += tx.quantity;
             } else {
                 const avgCost = h.qty > 0 ? h.cost / h.qty : 0;
                 const sellQty = Math.min(tx.quantity, h.qty);
                 h.cost -= avgCost * sellQty;
                 h.qty -= sellQty;
-                if (h.qty < 0.000001) {
-                    h.qty = 0;
-                    h.cost = 0;
-                }
+                if (h.qty < 0.000001) { h.qty = 0; h.cost = 0; }
+
+                const avgCostC = hc.qty > 0 ? hc.cost / hc.qty : 0;
+                const sellQtyC = Math.min(tx.quantity, hc.qty);
+                hc.cost -= avgCostC * sellQtyC;
+                hc.qty -= sellQtyC;
+                if (hc.qty < 0.000001) { hc.qty = 0; hc.cost = 0; }
             }
         }
 
@@ -336,12 +365,27 @@ export function getPortfolioHistory(
             value += (currentPrices[asset] || 0) * h.qty;
         }
 
+        const valueByCartera: Record<string, number> = {};
+        for (const [key, hc] of Object.entries(runningHoldingsByCartera)) {
+            const [asset, cartera] = key.split("|");
+            const currentVal = (currentPrices[asset] || 0) * hc.qty;
+            valueByCartera[cartera] = (valueByCartera[cartera] || 0) + currentVal;
+        }
+
         points.push({
             date,
             invested: Math.round(invested * 100) / 100,
             value: Math.round(value * 100) / 100,
+            valueByCartera,
         });
     }
+
+    // Sort the final points arrays chronologically just to be 100% sure
+    points.sort((a, b) => {
+        const [da, ma, ya] = a.date.split("/").map(Number);
+        const [db, mb, yb] = b.date.split("/").map(Number);
+        return (ya - yb) || (ma - mb) || (da - db);
+    });
 
     return points;
 }

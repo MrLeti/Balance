@@ -45,8 +45,44 @@
     transition: all 0.2s ease;
 }
 
-.navLink:hover {
+.navLink:hover, .activeNavLink {
     background-color: var(--glass-bg);
+}
+
+.desktopNav {
+    display: flex;
+    gap: 16px;
+    margin-right: 16px;
+    align-items: center;
+}
+
+.mobileNav {
+    display: none;
+    margin-right: 8px;
+}
+
+.navSelect {
+    background: var(--bg-color);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 14px;
+    padding-right: 28px;
+}
+
+.navSelect:focus {
+    border-color: var(--accent-color);
 }
 
 .actions {
@@ -162,14 +198,23 @@
         display: none;
     }
 
-    .navbar {
-        padding: 10px 14px;
-    }
-
     .actions {
         gap: 8px;
     }
 
+    .desktopNav {
+        display: none;
+    }
+
+    .mobileNav {
+        display: block;
+    }
+
+    .navSelect {
+        padding-top: 8px;
+        padding-bottom: 8px;
+        font-size: 0.85rem;
+    }
     .logoutBtn {
         padding: 6px 10px;
         font-size: 0.8rem;

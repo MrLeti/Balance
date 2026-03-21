@@ -60,6 +60,16 @@
     touch-action: pan-y;
 }
 
+.mobileSelectAll {
+    display: none;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    justify-content: flex-end;
+}
+
 .emptyMsg {
     text-align: center;
     color: var(--text-muted);
@@ -174,6 +184,21 @@
     cursor: not-allowed;
 }
 
+.instalmentBtn {
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 10px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.instalmentBtn:hover {
+    transform: translateY(-1px);
+}
+
 .actions {
     display: flex;
     gap: 12px;
@@ -209,6 +234,10 @@
     .table {
         min-width: 0;
         display: block;
+    }
+
+    .mobileSelectAll {
+        display: flex;
     }
 
     .table thead {
@@ -300,6 +329,7 @@
     }
 
     .saveBtn,
+    .instalmentBtn,
     .saveBtnDisabled,
     .cancelBtn {
         flex: 1;

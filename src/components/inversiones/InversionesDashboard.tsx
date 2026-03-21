@@ -240,6 +240,24 @@ export default function InversionesDashboard() {
         ],
     };
 
+    const historyCarteraData = {
+        labels: history.map(p => p.date),
+        datasets: CARTERAS.map((c, i) => {
+            const colors = ["#22c55e", "#f59e0b", "#3b82f6", "#ef4444"];
+            const color = colors[i % colors.length];
+            return {
+                label: `Valor en ${c}`,
+                data: history.map(p => p.valueByCartera?.[c] || 0),
+                borderColor: color,
+                backgroundColor: color + "15",
+                fill: true,
+                tension: 0.35,
+                pointRadius: 3,
+                pointBackgroundColor: color,
+            };
+        })
+    };
+
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
@@ -260,6 +278,17 @@ export default function InversionesDashboard() {
                 },
             },
         },
+    };
+
+    const chartOptionsStacked = {
+        ...chartOptions,
+        scales: {
+            ...chartOptions.scales,
+            y: {
+                ...chartOptions.scales.y,
+                stacked: true,
+            }
+        }
     };
 
     /* ─── Render ─── */
@@ -478,12 +507,21 @@ export default function InversionesDashboard() {
 
             {/* ── Portfolio Evolution Line Chart ── */}
             {history.length > 1 && (
+                <>
                 <section className={`glass-panel ${styles.section}`}>
-                    <h3 style={{ marginBottom: 12 }}>Evolución del Portafolio</h3>
+                    <h3 style={{ marginBottom: 12 }}>Evolución del Portafolio Global</h3>
                     <div className={styles.chartContainerWide}>
                         <Line data={historyData} options={chartOptions} />
                     </div>
                 </section>
+
+                <section className={`glass-panel ${styles.section}`}>
+                    <h3 style={{ marginBottom: 12 }}>Evolución por Cartera (Acumulado)</h3>
+                    <div className={styles.chartContainerWide}>
+                        <Line data={historyCarteraData} options={chartOptionsStacked} />
+                    </div>
+                </section>
+                </>
             )}
 
             {/* ── Transaction History ── */}

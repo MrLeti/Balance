@@ -104,6 +104,23 @@ export default function TransactionInput() {
         setImageFile(null);
     };
 
+    const handleManualLoad = () => {
+        const today = new Date();
+        const dd = String(today.getDate()).padStart(2, '0');
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const yyyy = today.getFullYear();
+        
+        setExtractedItems([{
+            Fecha: `${dd}/${mm}/${yyyy}`,
+            Tipo: "Egreso", // Default to most common
+            Categoría: "",
+            Subcategoría: "",
+            Monto: "",
+            Comentario: ""
+        }]);
+        setIsModalOpen(true);
+    };
+
     // --- Funcionalidad Drag & Drop ---
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -197,6 +214,26 @@ export default function TransactionInput() {
                             }}
                         />
                     </label>
+                    
+                    <button
+                        type="button"
+                        onClick={handleManualLoad}
+                        disabled={loading}
+                        style={{
+                            background: 'transparent',
+                            border: '1px solid var(--glass-border)',
+                            color: 'var(--text-main)',
+                            padding: '8px 16px',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}
+                    >
+                        ✍️ Manual
+                    </button>
                     <button
                         className={loading ? styles.submitBtnLoading : styles.submitBtn}
                         onClick={() => handleProcess()}
