@@ -747,13 +747,13 @@ export default function DashboardData() {
                                                 <p className={styles.txDate}>{tx[1]} • <span style={{ fontSize: "0.80rem", opacity: 0.8 }}>{tx[6]}</span></p>
                                             </div>
                                         </div>
-                                        <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                                            <div className={styles.txAmount} style={{ color: amountColor }}>
+                                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
+                                            <div className={styles.txAmount} style={{ color: amountColor, whiteSpace: "nowrap" }}>
                                                 {amountSign}{fmtAmt}
                                             </div>
                                             <button
                                                 onClick={() => handleDelete(tx)}
-                                                style={{ background: "none", border: "none", color: "var(--danger-color)", cursor: "pointer", fontSize: "1.2rem", padding: "0 8px" }}
+                                                style={{ background: "none", border: "none", color: "var(--danger-color)", cursor: "pointer", fontSize: "1.2rem", padding: "0 4px", flexShrink: 0 }}
                                                 title="Eliminar movimiento"
                                             >
                                                 ×

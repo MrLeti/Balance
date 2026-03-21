@@ -38,6 +38,7 @@
     display: flex;
     justify-content: flex-end;
     gap: 12px;
+    flex-wrap: wrap;
 }
 
 .hiddenInput {
@@ -170,4 +171,19 @@
     font-weight: 600;
     pointer-events: none;
     z-index: 10;
+}
+
+@media (max-width: 600px) {
+    .inputActions {
+        justify-content: stretch;
+    }
+
+    .addBtn,
+    .submitBtn,
+    .submitBtnLoading {
+        flex: 1;
+        justify-content: center;
+        padding: 12px 16px;
+        font-size: 0.95rem;
+    }
 }

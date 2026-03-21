@@ -35,6 +35,15 @@
     justify-content: space-between;
     font-size: 1.15rem;
     font-weight: 500;
+    gap: 8px;
+}
+
+.summaryRow span:last-child {
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
 }
 
 .totalRow {
@@ -175,6 +184,8 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .tabs {
@@ -202,6 +213,18 @@
     background: var(--glass-bg);
     color: var(--text-main);
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+@media (max-width: 600px) {
+    .tabs {
+        gap: 4px;
+        padding: 3px;
+    }
+
+    .tabBtn {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
 }
 
 .miniSelect {

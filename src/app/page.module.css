@@ -187,6 +187,7 @@
 @media (max-width: 900px) {
     .dashboardGrid {
         grid-template-columns: 1fr;
+        gap: 16px;
     }
 
     .colSpan2 {
@@ -195,5 +196,19 @@
 
     .card {
         padding: 16px;
+    }
+}
+
+@media (max-width: 600px) {
+    .dashboardContainer {
+        padding: 16px 12px;
+    }
+
+    .dashboardGrid {
+        gap: 12px;
+    }
+
+    .card {
+        padding: 14px 12px;
     }
 }

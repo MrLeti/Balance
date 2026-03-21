@@ -289,12 +289,27 @@
 
     .footer {
         flex-direction: column;
-        gap: 16px;
+        gap: 12px;
         padding: 16px;
     }
 
     .actions {
         width: 100%;
         justify-content: space-between;
+        gap: 10px;
+    }
+
+    .saveBtn,
+    .saveBtnDisabled,
+    .cancelBtn {
+        flex: 1;
+        text-align: center;
+        justify-content: center;
+        padding: 14px 12px;
+        font-size: 1rem;
+    }
+
+    .totalsGrid {
+        width: 100%;
     }
 }

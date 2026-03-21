@@ -161,4 +161,22 @@
     .name {
         display: none;
     }
+
+    .navbar {
+        padding: 10px 14px;
+    }
+
+    .actions {
+        gap: 8px;
+    }
+
+    .logoutBtn {
+        padding: 6px 10px;
+        font-size: 0.8rem;
+    }
+
+    .loginBtn {
+        padding: 8px 14px;
+        font-size: 0.85rem;
+    }
 }
