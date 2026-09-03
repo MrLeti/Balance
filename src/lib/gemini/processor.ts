@@ -1,14 +1,14 @@
 import { GoogleGenerativeAI, Part } from "@google/generative-ai";
 import { getCurrentDolarMEP } from "@/lib/dolar/api";
 
-const apiKey = process.env.GEMINI_API_KEY;
-
-if (!apiKey) {
-    throw new Error("GEMINI_API_KEY no configurado.");
+function getModel() {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+        throw new Error("GEMINI_API_KEY no configurado.");
+    }
+    const genAI = new GoogleGenerativeAI(apiKey);
+    return genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 }
-
-const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 import { CategoryItem } from "@/lib/constants";
 
@@ -105,6 +105,7 @@ export async function processFinanceTextOrImage(
             });
         }
 
+        const model = getModel();
         const result = await model.generateContent(parts);
         const response = await result.response;
         const textResp = response.text();

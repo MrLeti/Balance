@@ -6,9 +6,12 @@ import { createClient } from "@supabase/supabase-js";
  * y se haya verificado la identidad del usuario por otros medios.
  * NUNCA importar desde componentes cliente (Client Components).
  */
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder-service-key";
+
 export const supabaseAdmin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    supabaseUrl,
+    supabaseServiceKey,
     {
         auth: {
             persistSession: false,
