@@ -59,6 +59,61 @@ export default function TransactionInput() {
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const [isDragging, setIsDragging] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+
+    // --- Reconocimiento de Voz (Speech-to-Text) ---
+    const handleToggleVoice = () => {
+        if (typeof window === "undefined") return;
+
+        const SpeechRecognition =
+            (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+        if (!SpeechRecognition) {
+            setErrorMsg("Tu navegador no soporta reconocimiento de voz. Te recomendamos usar Google Chrome o Safari.");
+            return;
+        }
+
+        if (isListening) {
+            setIsListening(false);
+            return;
+        }
+
+        try {
+            const recognition = new SpeechRecognition();
+            recognition.lang = "es-AR";
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                setIsListening(true);
+                setErrorMsg(null);
+            };
+
+            recognition.onresult = (event: any) => {
+                const transcript = event.results[0][0].transcript;
+                if (transcript) {
+                    setTextInput(prev => (prev ? `${prev} ${transcript}` : transcript));
+                }
+            };
+
+            recognition.onerror = (event: any) => {
+                console.error("Speech recognition error:", event.error);
+                setIsListening(false);
+                if (event.error !== "no-speech") {
+                    setErrorMsg(`Error de voz: ${event.error}`);
+                }
+            };
+
+            recognition.onend = () => {
+                setIsListening(false);
+            };
+
+            recognition.start();
+        } catch (err) {
+            console.error("Speech recognition start failed:", err);
+            setIsListening(false);
+        }
+    };
 
     const handleProcess = async (directFile?: File) => {
         const fileToProcess = directFile || imageFile;
@@ -183,7 +238,7 @@ export default function TransactionInput() {
                 <textarea
                     className={styles.smartInput}
                     rows={2}
-                    placeholder='Ej: "Gasté 5000 en el súper en limpieza" • O pegá tu foto/PDF acá (Ctrl+V) • O arrastralo 📄'
+                    placeholder='Ej: "Gasté 5000 en el súper en limpieza" • "Ahorré 50000 para emergencias" • Pegá foto/PDF • O hablá 🎙️'
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     disabled={loading}
@@ -198,6 +253,15 @@ export default function TransactionInput() {
                 )}
 
                 <div className={styles.inputActions}>
+                    <button
+                        type="button"
+                        onClick={handleToggleVoice}
+                        className={`${styles.addBtn} ${isListening ? styles.voiceListening : ""}`}
+                        title="Dictar por voz"
+                    >
+                        <span>{isListening ? "🔴" : "🎙️"}</span> {isListening ? "Escuchando..." : "Voz"}
+                    </button>
+
                     <label className={styles.addBtn}>
                         <span>📸</span> Scan
                         <input

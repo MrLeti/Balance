@@ -1,0 +1,342 @@
+/* EditableTable.module.css — Material Design 3 theme table styles */
+
+/* ---------------------------------------------------------------------------
+   Wrapper
+--------------------------------------------------------------------------- */
+.wrapper {
+  padding: 0;
+  overflow-x: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   Controls bar (search + filters)
+--------------------------------------------------------------------------- */
+.controls {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* ---------------------------------------------------------------------------
+   Search input
+--------------------------------------------------------------------------- */
+.searchInput {
+  flex-grow: 1;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--bg-color);
+  color: var(--text-main);
+  padding: 0 16px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.searchInput::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.searchInput:focus {
+  border-color: var(--accent-color, #0061a4);
+  box-shadow: 0 0 0 3px rgba(0, 97, 164, 0.15);
+}
+
+/* ---------------------------------------------------------------------------
+   Filter selects
+--------------------------------------------------------------------------- */
+.filterSelect {
+  height: 40px;
+  min-width: 140px;
+  flex-shrink: 0;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--bg-color);
+  color: var(--text-main);
+  padding: 0 16px;
+  font-size: 0.9rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  appearance: auto;
+}
+
+.filterSelect:focus {
+  border-color: var(--accent-color, #0061a4);
+  box-shadow: 0 0 0 3px rgba(0, 97, 164, 0.15);
+}
+
+/* ---------------------------------------------------------------------------
+   Row count badge
+--------------------------------------------------------------------------- */
+.count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Table
+--------------------------------------------------------------------------- */
+.table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Table head
+--------------------------------------------------------------------------- */
+.thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.th {
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-main);
+  background: var(--md-sys-color-surface-container-high, var(--glass-bg));
+  border-bottom: 2px solid var(--glass-border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.th:hover {
+  color: var(--accent-color, #0061a4);
+  background: var(--md-sys-color-surface-container, var(--glass-bg));
+}
+
+.thActive {
+  color: var(--accent-color, #0061a4);
+}
+
+/* ---------------------------------------------------------------------------
+   Sort icon
+--------------------------------------------------------------------------- */
+.sortIcon {
+  margin-left: 4px;
+  font-size: 0.7rem;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ---------------------------------------------------------------------------
+   Table rows
+--------------------------------------------------------------------------- */
+.tr {
+  transition: background 0.15s ease;
+}
+
+.tr:hover {
+  background: var(--glass-bg);
+}
+
+/* ---------------------------------------------------------------------------
+   Table cells
+--------------------------------------------------------------------------- */
+.td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--glass-border);
+  color: var(--text-main);
+  font-size: 0.875rem;
+  vertical-align: middle;
+  position: relative;
+}
+
+.tdEditable {
+  cursor: pointer;
+}
+
+.tdEditable:hover {
+  background: rgba(0, 97, 164, 0.08);
+  border-radius: 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   Cell value display
+--------------------------------------------------------------------------- */
+.cellValue {
+  display: inline-block;
+  min-height: 20px;
+}
+
+/* ---------------------------------------------------------------------------
+   Cell editor input
+--------------------------------------------------------------------------- */
+.cellInput {
+  background: var(--bg-color);
+  border: 1.5px solid var(--accent-color, #0061a4);
+  border-radius: 8px;
+  color: var(--text-main);
+  padding: 4px 10px;
+  font-size: 0.875rem;
+  width: 100%;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 97, 164, 0.18);
+  transition: box-shadow 0.15s ease;
+}
+
+/* ---------------------------------------------------------------------------
+   Pending confirmation bubble
+--------------------------------------------------------------------------- */
+.pendingBubble {
+  position: absolute;
+  top: -48px;
+  left: 0;
+  z-index: 10;
+  background: var(--md-sys-color-surface-container-high, var(--bg-color));
+  border: 1px solid var(--glass-border);
+  border-radius: 10px;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  align-items: center;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  color: var(--text-main);
+}
+
+/* Arrow pointer */
+.pendingBubble::after {
+  content: '';
+  position: absolute;
+  bottom: -7px;
+  left: 16px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid var(--md-sys-color-surface-container-high, var(--bg-color));
+}
+
+/* ---------------------------------------------------------------------------
+   Confirm / Reject buttons inside bubble
+--------------------------------------------------------------------------- */
+.confirmBtn {
+  background: var(--success-color, #22c55e);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: opacity 0.15s ease;
+}
+
+.confirmBtn:hover {
+  opacity: 0.88;
+}
+
+.rejectBtn {
+  background: var(--danger-color, #ef4444);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 3px 10px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: opacity 0.15s ease;
+}
+
+.rejectBtn:hover {
+  opacity: 0.88;
+}
+
+/* ---------------------------------------------------------------------------
+   Delete button
+--------------------------------------------------------------------------- */
+.deleteBtn {
+  background: none;
+  border: none;
+  color: var(--danger-color, #ef4444);
+  cursor: pointer;
+  font-size: 1.3rem;
+  padding: 0 6px;
+  opacity: 0.6;
+  border-radius: 6px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.deleteBtn:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.deleteBtn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
+}
+
+/* ---------------------------------------------------------------------------
+   Saving spinner
+--------------------------------------------------------------------------- */
+.savingSpinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--glass-border);
+  border-top-color: var(--accent-color, #0061a4);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* ---------------------------------------------------------------------------
+   Empty / loading message
+--------------------------------------------------------------------------- */
+.emptyMsg {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 40px;
+  font-size: 0.95rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Load more / Pagination button
+--------------------------------------------------------------------------- */
+.loadMoreBtn {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--surface-subtle, rgba(255, 255, 255, 0.05));
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  color: var(--accent-color);
+  font-weight: 600;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  margin-top: 14px;
+}
+
+.loadMoreBtn:hover {
+  background: rgba(99, 102, 241, 0.12);
+  border-color: var(--accent-color);
+  transform: translateY(-1px);
+}
+

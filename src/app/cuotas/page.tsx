@@ -1,21 +1,22 @@
-import Navbar from "@/components/layout/Navbar";
 import CuotasDashboard from "@/components/cuotas/CuotasDashboard";
 import styles from "./page.module.css";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
-export default async function CuotasPage() {
-    const session = await getServerSession(authOptions);
+export const dynamic = "force-dynamic";
 
-    if (!session) {
-        redirect("/");
+export default async function CuotasPage() {
+    const supabase = await createClient();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+        redirect("/login");
     }
 
     return (
         <div className={styles.container}>
-            <Navbar />
-
             <main className={styles.dashboardContainer}>
                 <CuotasDashboard />
             </main>

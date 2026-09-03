@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import styles from "./Navbar.module.css";
+import styles from "./ThemeToggle.module.css";
 
 export default function ThemeToggle() {
     const [theme, setTheme] = useState<"light" | "dark" | "system">("system");

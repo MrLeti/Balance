@@ -1,47 +1,107 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendPagoTarjeta, getPagosTarjetas } from "@/lib/google/pagos_tarjetas";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { parseSafeAmount, roundMoney } from "@/lib/utils/format";
+import { safeErrorResponse } from "@/lib/utils/api-error";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+        const supabase = await createClient();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
 
-        const rows = await getPagosTarjetas();
-        const data = rows.map((row: any[]) => ({
-            id: row[0],
-            closingDate: row[1],
-            tarjeta: row[2],
-            period: row[3],
-            amount: parseFloat(String(row[4]).replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-        }));
+        if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
-        return NextResponse.json({ data });
+        const { data: sbData, error } = await supabase
+            .from("card_payments")
+            .select("id, closing_date, tarjeta, period, amount")
+            .eq("user_id", user.id)
+            .order("closing_date", { ascending: false });
+
+        if (error) {
+            console.error("Error consultando pagos de tarjetas:", error);
+            throw error;
+        }
+
+        const data = (sbData || []).map((p) => {
+            let formattedDate = p.closing_date;
+            if (p.closing_date && p.closing_date.includes("-")) {
+                const [y, m, d] = p.closing_date.split("-");
+                formattedDate = `${d}/${m}/${y}`;
+            }
+            return {
+                id: p.id,
+                closingDate: formattedDate,
+                tarjeta: p.tarjeta,
+                period: p.period,
+                amount: Number(p.amount) || 0,
+            };
+        });
+
+        return NextResponse.json({ data, source: "supabase" });
     } catch (error: unknown) {
         console.error("Error consultando pagos de tarjetas:", error);
-        return NextResponse.json({ error: "Error de base de datos" }, { status: 500 });
+        return NextResponse.json(safeErrorResponse(error, "Error consultando pagos de tarjetas."), { status: 500 });
     }
 }
 
 export async function POST(req: NextRequest) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+        const supabase = await createClient();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
         const body = await req.json();
         const { closingDate, tarjeta, period, amount } = body;
 
-        const id = crypto.randomUUID();
-        const sanitize = (val: string) => /^[=+\-@]/.test(val) ? `'${val}` : val;
+        const cleanTarjeta = String(tarjeta || "").trim();
+        if (!cleanTarjeta) {
+            return NextResponse.json({ error: "Debe seleccionar una tarjeta." }, { status: 400 });
+        }
 
-        // [ID, Fecha Cierre, Tarjeta, Periodo / Mes Liquidado (MM/YYYY), Monto Confirmado]
-        const row = [id, sanitize(closingDate), sanitize(tarjeta), sanitize(period), amount];
-        await appendPagoTarjeta([row]);
+        const cleanPeriod = String(period || "").trim();
+        if (!cleanPeriod) {
+            return NextResponse.json({ error: "Debe especificar el período a liquidar (MM/YYYY)." }, { status: 400 });
+        }
+
+        const numAmount = roundMoney(parseSafeAmount(amount));
+        if (numAmount <= 0) {
+            return NextResponse.json({ error: "El importe pagado debe ser mayor a cero." }, { status: 400 });
+        }
+
+        const id = crypto.randomUUID();
+
+        let isoDate = closingDate;
+        if (closingDate && closingDate.includes("/")) {
+            const parts = closingDate.split("/");
+            if (parts.length === 3) {
+                isoDate = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+            }
+        }
+
+        const { error: sbError } = await supabase.from("card_payments").insert({
+            id,
+            user_id: user.id,
+            closing_date: isoDate,
+            tarjeta: cleanTarjeta,
+            period: cleanPeriod,
+            amount: numAmount,
+        });
+
+        if (sbError) {
+            console.error("Error guardando pago de tarjeta en Supabase:", sbError);
+            throw new Error(`Error en base de datos: ${sbError.message}`);
+        }
 
         return NextResponse.json({ success: true, id });
     } catch (error: unknown) {
         console.error("Error guardando pago de tarjeta:", error);
-        return NextResponse.json({ error: "Error de base de datos" }, { status: 500 });
+        return NextResponse.json(safeErrorResponse(error, "Error al registrar el pago de la tarjeta."), { status: 500 });
     }
 }
+

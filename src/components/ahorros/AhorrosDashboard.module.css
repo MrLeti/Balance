@@ -1,0 +1,656 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding-bottom: 40px;
+}
+
+/* ── Header ── */
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.title {
+    font-size: 1.6rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--text-main);
+    letter-spacing: -0.02em;
+}
+
+.subtitle {
+    margin: 4px 0 0 0;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.btnNewGoal {
+    padding: 10px 18px;
+    border-radius: 12px;
+    background: var(--accent-color, #3b82f6);
+    color: white;
+    border: none;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25);
+    transition: all 0.2s ease;
+}
+
+.btnNewGoal:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+/* ── Summary Overview ── */
+.summaryGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.summaryCard {
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.summaryCardEmergency {
+    border-left: 4px solid #10b981;
+}
+
+.summaryLabel {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.summaryValue {
+    font-size: 1.45rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.summarySmall {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* ── Goals Grid ── */
+.goalsSection {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.sectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.sectionHeader h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.goalsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 18px;
+}
+
+/* ── Goal Card ── */
+.goalCard {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    position: relative;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.goalCard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.emergencyGoalCard {
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: linear-gradient(180deg, rgba(16, 185, 129, 0.04) 0%, transparent 100%);
+}
+
+.goalCardHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.goalTitleGroup {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.goalIcon {
+    font-size: 1.6rem;
+    background: var(--surface-subtle, rgba(0, 0, 0, 0.04));
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.goalName {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.emergencyTag, .daysTag, .completedTag {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
+.emergencyTag {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10b981;
+}
+
+.daysTag {
+    background: rgba(245, 158, 11, 0.12);
+    color: #f59e0b;
+}
+
+.completedTag {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+}
+
+.deleteGoalBtn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.deleteGoalBtn:hover {
+    color: var(--danger-color, #ef4444);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.goalAmounts {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+}
+
+.savedLabel, .targetLabel {
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+}
+
+.savedValue {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.targetValue {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.progressContainer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.progressBar {
+    flex: 1;
+    height: 8px;
+    border-radius: 99px;
+    background: var(--surface-subtle, rgba(0, 0, 0, 0.08));
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    border-radius: 99px;
+    background: linear-gradient(90deg, #3b82f6, #6366f1);
+    transition: width 0.4s ease;
+}
+
+.progressEmergency {
+    background: linear-gradient(90deg, #10b981, #059669);
+}
+
+.progressPercent {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-main);
+    min-width: 34px;
+    text-align: right;
+}
+
+.monthsMetric {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: rgba(16, 185, 129, 0.06);
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(16, 185, 129, 0.15);
+}
+
+.goalActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.actionBtnDeposit, .actionBtnWithdraw {
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.actionBtnDeposit {
+    background: rgba(59, 130, 246, 0.12);
+    color: var(--accent-color, #3b82f6);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.actionBtnDeposit:hover {
+    background: var(--accent-color, #3b82f6);
+    color: white;
+}
+
+.actionBtnWithdraw {
+    background: var(--surface-subtle, rgba(0, 0, 0, 0.04));
+    color: var(--text-muted);
+    border-color: var(--glass-border);
+}
+
+.actionBtnWithdraw:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--danger-color, #ef4444);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.actionBtnWithdraw:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* ── History Section ── */
+.historySection {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.historyCount {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.movementsList {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.movementItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--surface-subtle, rgba(0, 0, 0, 0.02));
+    border: 1px solid var(--glass-border);
+}
+
+.movementLeft {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.movementBadge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.badgeAporte {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3b82f6;
+}
+
+.badgeRetiro {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+.movementDetails {
+    display: flex;
+    flex-direction: column;
+}
+
+.movementGoal {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.movementComment {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.movementRight {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+}
+
+.movementAmount {
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.amountPositive {
+    color: var(--success-color, #10b981);
+}
+
+.amountNegative {
+    color: var(--danger-color, #ef4444);
+}
+
+.movementDate {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+/* ── Modals ── */
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.modalCard {
+    width: 100%;
+    max-width: 480px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modalHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modalHeader h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.closeBtn {
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    line-height: 1;
+}
+
+.modalForm {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.formGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.formGroup label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.formRow {
+    display: flex;
+    gap: 12px;
+}
+
+.input, .inputAmount {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.12);
+    color: var(--text-main);
+    font-size: 0.92rem;
+    outline: none;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.input option {
+    background: var(--bg-color, #1a1c1e);
+    color: var(--text-main, #ffffff);
+}
+
+.input:focus, .inputAmount:focus {
+    border-color: var(--accent-color, #3b82f6);
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.amountInputWrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.curPrefix {
+    position: absolute;
+    left: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
+}
+
+.inputAmount {
+    padding-left: 36px;
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+
+.emojiRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.emojiBtn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.08);
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.emojiBtn:hover, .emojiBtnActive {
+    border-color: var(--accent-color, #3b82f6);
+    background: rgba(59, 130, 246, 0.2);
+    transform: scale(1.1);
+}
+
+.checkboxRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.checkboxLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.typeSelector {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.typeBtn {
+    padding: 10px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    border: 1px solid var(--glass-border);
+    background: var(--surface-subtle, rgba(0, 0, 0, 0.04));
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.typeBtnAporte {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--accent-color, #3b82f6);
+    border-color: var(--accent-color, #3b82f6);
+}
+
+.typeBtnRetiro {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color, #ef4444);
+    border-color: var(--danger-color, #ef4444);
+}
+
+.modalActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.btnPrimary, .btnSecondary, .btnDanger {
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.btnPrimary {
+    background: var(--accent-color, #3b82f6);
+    color: white;
+}
+
+.btnDanger {
+    background: var(--danger-color, #ef4444);
+    color: white;
+}
+
+.btnSecondary {
+    background: var(--surface-subtle, rgba(0, 0, 0, 0.05));
+    color: var(--text-main);
+}
+
+.errorBanner {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    font-size: 0.85rem;
+}
+
+.loadingContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+    gap: 16px;
+    color: var(--text-muted);
+}
+
+.spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--surface-subtle, rgba(0, 0, 0, 0.1));
+    border-top-color: var(--accent-color, #3b82f6);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

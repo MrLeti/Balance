@@ -1,0 +1,16 @@
+﻿.container {
+    min-height: 100vh;
+    padding: 24px;
+    background: var(--bg-color);
+}
+
+.dashboardContainer {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 16px 12px;
+    }
+}

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import styles from "./TransactionForm.module.css";
-import type { AssetType, TransactionType, Cartera } from "@/lib/utils/investments";
+import type { AssetType, TransactionType, Cartera, Currency } from "@/lib/utils/investments";
 import { ASSET_TYPES, CARTERAS, transactionToRow } from "@/lib/utils/investments";
+import { parseArithmeticExpression } from "@/lib/utils/format";
 
 // ─── Ticker catalogue ───────────────────────────────────────
-// Combined list of Acciones, ETFs, CEDEARs and Crypto tickers
-// with their display names for autocomplete.
+
 const TICKER_LIST: { ticker: string; name: string; type: AssetType }[] = [
     // ── Cripto
     { ticker: "BTC",   name: "Bitcoin",            type: "Cripto" },
@@ -19,14 +19,42 @@ const TICKER_LIST: { ticker: string; name: string; type: AssetType }[] = [
     { ticker: "DOGE",  name: "Dogecoin",           type: "Cripto" },
     { ticker: "AVAX",  name: "Avalanche",          type: "Cripto" },
     { ticker: "MATIC", name: "Polygon",            type: "Cripto" },
+    { ticker: "POL",   name: "Polygon (POL)",      type: "Cripto" },
     { ticker: "DOT",   name: "Polkadot",           type: "Cripto" },
     { ticker: "LINK",  name: "Chainlink",          type: "Cripto" },
     { ticker: "UNI",   name: "Uniswap",            type: "Cripto" },
     { ticker: "LTC",   name: "Litecoin",           type: "Cripto" },
     { ticker: "ATOM",  name: "Cosmos",             type: "Cripto" },
     { ticker: "SHIB",  name: "Shiba Inu",          type: "Cripto" },
-    { ticker: "USDT",  name: "Tether",             type: "Cripto" },
+    { ticker: "USDT",  name: "Tether (USD)",       type: "Cripto" },
     { ticker: "USDC",  name: "USD Coin",           type: "Cripto" },
+    { ticker: "DAI",   name: "Dai Stablecoin",     type: "Cripto" },
+    // ── Bonos y ONs
+    { ticker: "AL30",  name: "Bono AL30 (Bonares 2030 ARS)", type: "Bonos" },
+    { ticker: "AL30D", name: "Bono AL30D (Bonares 2030 USD)", type: "Bonos" },
+    { ticker: "GD30",  name: "Bono GD30 (Globales 2030 ARS)", type: "Bonos" },
+    { ticker: "GD30D", name: "Bono GD30D (Globales 2030 USD)", type: "Bonos" },
+    { ticker: "YMCIO", name: "ON YPF 2026 USD",     type: "Bonos" },
+    { ticker: "TLC1O", name: "ON Telecom 2026 USD", type: "Bonos" },
+    { ticker: "MGC9O", name: "ON Pampa Energía 2026 USD", type: "Bonos" },
+    // ── Acciones Locales (Merval)
+    { ticker: "GGAL",  name: "Grupo Financiero Galicia", type: "Acciones" },
+    { ticker: "YPFD",  name: "YPF S.A.",            type: "Acciones" },
+    { ticker: "PAMP",  name: "Pampa Energía",       type: "Acciones" },
+    { ticker: "ALUA",  name: "Aluar Aluminio",      type: "Acciones" },
+    { ticker: "TXAR",  name: "Ternium Argentina",   type: "Acciones" },
+    { ticker: "BMA",   name: "Banco Macro",         type: "Acciones" },
+    { ticker: "VALO",  name: "Banco de Valores",    type: "Acciones" },
+    { ticker: "CEPU",  name: "Central Puerto",      type: "Acciones" },
+    { ticker: "CRES",  name: "Cresud",              type: "Acciones" },
+    { ticker: "MIRG",  name: "Mirgor",              type: "Acciones" },
+    { ticker: "TGSU2", name: "Transp. Gas del Sur", type: "Acciones" },
+    { ticker: "TRAN",  name: "Transener",           type: "Acciones" },
+    { ticker: "SUPV",  name: "Banco Supervielle",   type: "Acciones" },
+    { ticker: "BBAR",  name: "BBVA Argentina",      type: "Acciones" },
+    { ticker: "COME",  name: "Soc. Comercial Plata",type: "Acciones" },
+    { ticker: "EDN",   name: "Edenor",              type: "Acciones" },
+    { ticker: "LOMA",  name: "Loma Negra",          type: "Acciones" },
     // ── ETFs
     { ticker: "SPY",   name: "S&P 500 ETF",        type: "ETFs" },
     { ticker: "QQQ",   name: "Nasdaq 100 ETF",     type: "ETFs" },
@@ -41,7 +69,7 @@ const TICKER_LIST: { ticker: string; name: string; type: AssetType }[] = [
     { ticker: "XLF",   name: "Financial ETF",      type: "ETFs" },
     { ticker: "ARKK",  name: "ARK Innovation ETF", type: "ETFs" },
     { ticker: "HYG",   name: "High Yield ETF",     type: "ETFs" },
-    // ── CEDEARs / Acciones
+    // ── CEDEARs
     { ticker: "AAPL",  name: "Apple",              type: "Cedears" },
     { ticker: "MSFT",  name: "Microsoft",          type: "Cedears" },
     { ticker: "GOOGL", name: "Alphabet (Google)",  type: "Cedears" },
@@ -109,6 +137,8 @@ const todayStr = () => {
 
 export default function TransactionForm({ onTransactionAdded }: TransactionFormProps) {
     const [type, setType] = useState<TransactionType>("Compra");
+    const [currency, setCurrency] = useState<Currency>("ARS");
+    const [fxRate, setFxRate] = useState<string>("");
     const [asset, setAsset] = useState("");
     const [assetType, setAssetType] = useState<AssetType>("Acciones");
     const [quantity, setQuantity] = useState("");
@@ -127,13 +157,53 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
     const containerRef = useRef<HTMLDivElement>(null);
     const suggestionsRef = useRef<HTMLUListElement>(null);
 
-    const total = (parseFloat(quantity) || 0) * (parseFloat(unitPrice) || 0) + (parseFloat(commission) || 0);
+    // Fetch dollar rate for a specific date (defaults to today's MEP)
+    const fetchFxRateForDate = useCallback(async (dateStr: string) => {
+        try {
+            const res = await fetch(`/api/investments/fx-rate?date=${encodeURIComponent(dateStr.trim())}`);
+            if (res.ok) {
+                const data = await res.json();
+                if (data.fxRate && data.fxRate > 0) {
+                    setFxRate(String(data.fxRate));
+                }
+            }
+        } catch {
+            // Non-blocking
+        }
+    }, []);
 
-    const isValid =
-        asset.trim().length > 0 &&
-        (parseFloat(quantity) || 0) > 0 &&
-        (parseFloat(unitPrice) || 0) > 0 &&
-        date.trim().length > 0;
+    // Initial dollar rate fetch
+    useEffect(() => {
+        fetchFxRateForDate(date);
+    }, [fetchFxRateForDate]);
+
+    const handleDateChange = (newDate: string) => {
+        setDate(newDate);
+        if (newDate.trim().length >= 8) {
+            fetchFxRateForDate(newDate);
+        }
+    };
+
+    const isSplit = type === "Split";
+
+    const parsedComm = parseArithmeticExpression(commission);
+    const parsedQty = parseFloat(quantity) || 0;
+    const parsedPrice = parseFloat(unitPrice) || 0;
+
+    // Al vender, las comisiones restan al total neto recibido
+    const total = isSplit
+        ? 0
+        : type === "Compra"
+            ? (parsedQty * parsedPrice) + parsedComm
+            : Math.max(0, (parsedQty * parsedPrice) - parsedComm);
+
+    const isValid = useMemo(() => {
+        const q = parseFloat(quantity.replace(/,/g, ".")) || 0;
+        const p = parseFloat(unitPrice.replace(/,/g, ".")) || 0;
+        if (!asset.trim() || !date.trim() || q <= 0) return false;
+        if (isSplit) return true;
+        return p > 0;
+    }, [asset, date, quantity, unitPrice, isSplit]);
 
     /* ─── Autocomplete Logic ─── */
     const getSuggestions = useCallback((value: string) => {
@@ -154,12 +224,38 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
         setShowSuggestions(matches.length > 0);
     };
 
-    const selectSuggestion = (s: typeof TICKER_LIST[number]) => {
+    const selectSuggestion = async (s: typeof TICKER_LIST[number]) => {
         setAsset(s.ticker);
         setAssetType(s.type);
         setSuggestions([]);
         setShowSuggestions(false);
         setHighlightedIndex(-1);
+
+        // Automatically preselect USD for Cripto
+        if (s.type === "Cripto") {
+            setCurrency("USD");
+        }
+
+        // Try suggesting live price if unitPrice is empty
+        if (!isSplit) {
+            try {
+                const targetCurrency = s.type === "Cripto" ? "USD" : currency;
+                const res = await fetch(`/api/investments/prices?assets=${s.ticker}&types=${s.type}&currencies=${targetCurrency}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const p = data.prices?.[s.ticker];
+                    if (p) {
+                        const targetPrice = (s.type === "Cripto" || currency === "USD") ? p.usd : p.ars;
+                        if (targetPrice > 0 && !unitPrice) {
+                            setUnitPrice(String(targetPrice));
+                        }
+                    }
+                }
+            } catch {
+                // Non-blocking
+            }
+        }
+
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -186,16 +282,22 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
         setSaving(true);
 
         try {
+            const evaluatedCommission = isSplit ? 0 : parseArithmeticExpression(commission);
+            const parsedQty = parseFloat(quantity.replace(/,/g, ".")) || 0;
+            const parsedPrice = isSplit ? 0 : (parseFloat(unitPrice.replace(/,/g, ".")) || 0);
+
             const row = transactionToRow({
                 date,
                 type,
                 asset: asset.toUpperCase().trim(),
                 assetType,
-                quantity: parseFloat(quantity),
-                unitPrice: parseFloat(unitPrice),
-                commission: parseFloat(commission) || 0,
+                quantity: parsedQty,
+                unitPrice: parsedPrice,
+                commission: evaluatedCommission,
                 cartera,
                 comment: comment.trim(),
+                currency,
+                fxRate: parseFloat(fxRate) || undefined,
             });
 
             const res = await fetch("/api/investments", {
@@ -204,7 +306,64 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 body: JSON.stringify({ items: [row] }),
             });
 
-            if (!res.ok) throw new Error("Error al guardar");
+            const resData = await res.json().catch(() => ({}));
+            if (!res.ok || !resData.success) {
+                throw new Error(resData.error || "Error al registrar la inversión.");
+            }
+
+            // Reflejar impacto de liquidez en el Balance (Pesos ARS al Dólar MEP)
+            if (!isSplit) {
+                const rawQty = parsedQty;
+                const rawPrice = parsedPrice;
+                const rawComm = evaluatedCommission;
+                const effectiveRate = parseFloat(fxRate) || 1;
+                const totalARS = currency === "USD"
+                    ? Math.round((rawQty * rawPrice + rawComm) * effectiveRate * 100) / 100
+                    : Math.round((rawQty * rawPrice + rawComm) * 100) / 100;
+
+                const investmentId = resData.ids?.[0] || "";
+                if (totalARS > 0) {
+                    const trxRow = [
+                        date,
+                        "Inversión",
+                        "Activos Financieros",
+                        assetType,
+                        totalARS,
+                        `${type === "Venta" ? "[Venta/Rescate] " : ""}${rawQty} ${asset.toUpperCase()} (${currency}${currency === "USD" ? ` @ MEP $${effectiveRate}` : ""}) ${comment.trim()}`,
+                        "",
+                        investmentId
+                    ];
+
+                    let cashflowSynced = true;
+                    try {
+                        const txRes = await fetch("/api/transactions", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ items: [trxRow] }),
+                        });
+                        if (!txRes.ok) cashflowSynced = false;
+                    } catch (syncErr) {
+                        console.warn("Fallo sincronización con transacciones:", syncErr);
+                        cashflowSynced = false;
+                    }
+
+                    if (!cashflowSynced) {
+                        setError("La inversión fue guardada, pero ocurrió un problema de conexión al registrar el impacto en el balance de caja. Podés registrar el movimiento manualmente si lo deseás.");
+                    } else {
+                        window.dispatchEvent(new Event("transaction_added"));
+                    }
+                }
+            }
+
+            if (resData.sheetsSynced === false) {
+                window.dispatchEvent(new CustomEvent("sheets_sync_failed", {
+                    detail: {
+                        type: "investments",
+                        items: resData.rawItemsForSheets || [row],
+                        error: resData.sheetsError
+                    }
+                }));
+            }
 
             // Reset form
             setAsset("");
@@ -223,22 +382,50 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
 
     return (
         <form className={styles.form} onSubmit={handleSubmit} id="investment-form">
-            {/* Type toggle */}
-            <div className={styles.typeToggle}>
-                <button
-                    type="button"
-                    className={`${styles.typeBtn} ${type === "Compra" ? styles.typeBtnActiveBuy : ""}`}
-                    onClick={() => setType("Compra")}
-                >
-                    Compra
-                </button>
-                <button
-                    type="button"
-                    className={`${styles.typeBtn} ${type === "Venta" ? styles.typeBtnActiveSell : ""}`}
-                    onClick={() => setType("Venta")}
-                >
-                    Venta
-                </button>
+            {/* Top Controls: Type toggle & Currency selector */}
+            <div className={styles.topControls}>
+                <div className={styles.typeToggle}>
+                    <button
+                        type="button"
+                        className={`${styles.typeBtn} ${type === "Compra" ? styles.typeBtnActiveBuy : ""}`}
+                        onClick={() => setType("Compra")}
+                    >
+                        ▲ Compra
+                    </button>
+                    <button
+                        type="button"
+                        className={`${styles.typeBtn} ${type === "Venta" ? styles.typeBtnActiveSell : ""}`}
+                        onClick={() => setType("Venta")}
+                    >
+                        ▼ Venta
+                    </button>
+                    <button
+                        type="button"
+                        className={`${styles.typeBtn} ${type === "Split" ? styles.typeBtnActiveSplit : ""}`}
+                        onClick={() => setType("Split")}
+                    >
+                        ➗ Split
+                    </button>
+                </div>
+
+                {!isSplit && (
+                    <div className={styles.currencyToggle}>
+                        <button
+                            type="button"
+                            className={`${styles.currencyBtn} ${currency === "ARS" ? styles.currencyBtnActive : ""}`}
+                            onClick={() => setCurrency("ARS")}
+                        >
+                            🇦🇷 ARS
+                        </button>
+                        <button
+                            type="button"
+                            className={`${styles.currencyBtn} ${currency === "USD" ? styles.currencyBtnActive : ""}`}
+                            onClick={() => setCurrency("USD")}
+                        >
+                            🇺🇸 USD
+                        </button>
+                    </div>
+                )}
             </div>
 
             <div className={styles.fieldsGrid}>
@@ -251,14 +438,11 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                             type="text"
                             autoComplete="off"
                             className={styles.input}
-                            placeholder="BTC, AAPL, SPY..."
+                            placeholder="BTC, AAPL, SPY, AL30..."
                             value={asset}
                             onChange={e => handleAssetChange(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            onBlur={() =>
-                                // Delay to allow click on suggestion
-                                setTimeout(() => setShowSuggestions(false), 150)
-                            }
+                            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                             onFocus={() => {
                                 if (suggestions.length > 0) setShowSuggestions(true);
                             }}
@@ -281,7 +465,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                                     >
                                         <span className={styles.dropdownTicker}>{s.ticker}</span>
                                         <span className={styles.dropdownName}>{s.name}</span>
-                                        <span className={`${styles.dropdownType} ${styles[`dropdownType${s.type}`]}`}>
+                                        <span className={`${styles.dropdownType} ${styles[`dropdownType${s.type}`] || ""}`}>
                                             {s.type}
                                         </span>
                                     </li>
@@ -308,14 +492,16 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
 
                 {/* Quantity */}
                 <div className={styles.field}>
-                    <label className={styles.label}>Cantidad</label>
+                    <label className={styles.label}>
+                        {isSplit ? "Factor de Split (ej. 10 para 10 a 1)" : "Cantidad"}
+                    </label>
                     <input
                         id="inv-quantity"
                         type="number"
                         step="any"
                         min="0"
                         className={styles.input}
-                        placeholder="0.00"
+                        placeholder={isSplit ? "10" : "0.00"}
                         value={quantity}
                         onChange={e => setQuantity(e.target.value)}
                         required
@@ -323,35 +509,55 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 </div>
 
                 {/* Unit price */}
-                <div className={styles.field}>
-                    <label className={styles.label}>Precio Unit. (ARS)</label>
-                    <input
-                        id="inv-unit-price"
-                        type="number"
-                        step="any"
-                        min="0"
-                        className={styles.input}
-                        placeholder="0.00"
-                        value={unitPrice}
-                        onChange={e => setUnitPrice(e.target.value)}
-                        required
-                    />
-                </div>
+                {!isSplit && (
+                    <div className={styles.field}>
+                        <label className={styles.label}>Precio Unit. ({currency})</label>
+                        <input
+                            id="inv-unit-price"
+                            type="number"
+                            step="any"
+                            min="0"
+                            className={styles.input}
+                            placeholder="0.00"
+                            value={unitPrice}
+                            onChange={e => setUnitPrice(e.target.value)}
+                            required
+                        />
+                    </div>
+                )}
 
                 {/* Commission */}
-                <div className={styles.field}>
-                    <label className={styles.label}>Comisión (ARS)</label>
-                    <input
-                        id="inv-commission"
-                        type="number"
-                        step="any"
-                        min="0"
-                        className={styles.input}
-                        placeholder="0.00"
-                        value={commission}
-                        onChange={e => setCommission(e.target.value)}
-                    />
-                </div>
+                {!isSplit && (
+                    <div className={styles.field}>
+                        <label className={styles.label}>Comisión ({currency})</label>
+                        <input
+                            id="inv-commission"
+                            type="text"
+                            className={styles.input}
+                            placeholder="0.00 o ej. 123.5+156.25"
+                            value={commission}
+                            onChange={e => setCommission(e.target.value)}
+                        />
+                    </div>
+                )}
+
+                {/* FX Rate */}
+                {!isSplit && (
+                    <div className={styles.field}>
+                        <label className={styles.label}>Dólar MEP ($)</label>
+                        <input
+                            id="inv-fx-rate"
+                            type="number"
+                            step="any"
+                            min="0"
+                            className={styles.input}
+                            placeholder="1280.00"
+                            value={fxRate}
+                            onChange={e => setFxRate(e.target.value)}
+                            title="Cotización del dólar MEP para calcular la rentabilidad dual"
+                        />
+                    </div>
+                )}
 
                 {/* Date */}
                 <div className={styles.field}>
@@ -362,13 +568,14 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                         className={styles.input}
                         placeholder="DD/MM/YYYY"
                         value={date}
-                        onChange={e => setDate(e.target.value)}
+                        onChange={e => handleDateChange(e.target.value)}
                         required
                     />
                 </div>
+
             </div>
 
-            {/* Cartera selector + Comentario on same row */}
+            {/* Cartera selector + Comentario */}
             <div className={styles.bottomRow}>
                 <div className={styles.field}>
                     <label className={styles.label}>Cartera</label>
@@ -392,7 +599,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                         id="inv-comment"
                         type="text"
                         className={styles.input}
-                        placeholder="Nota adicional..."
+                        placeholder={isSplit ? "Ej: Split 10:1 anunciado por la empresa..." : "Nota adicional..."}
                         value={comment}
                         onChange={e => setComment(e.target.value)}
                     />
@@ -400,14 +607,25 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
             </div>
 
             {/* Total preview */}
-            <div className={styles.totalRow}>
-                <span className={styles.totalLabel}>
-                    Total {type === "Compra" ? "a invertir" : "a recibir"}:
-                </span>
-                <span className={`${styles.totalValue} ${type === "Venta" ? styles.totalSell : ""}`}>
-                    ${total.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-            </div>
+            {!isSplit ? (
+                <div className={styles.totalRow}>
+                    <span className={styles.totalLabel}>
+                        Total {type === "Compra" ? "a invertir" : "a recibir"} ({currency}):
+                    </span>
+                    <span className={`${styles.totalValue} ${type === "Venta" ? styles.totalSell : ""}`}>
+                        {currency === "USD" ? "USD $" : "$"}{total.toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                </div>
+            ) : (
+                <div className={styles.totalRow}>
+                    <span className={styles.totalLabel}>
+                        Operación corporativa:
+                    </span>
+                    <span className={styles.totalValue} style={{ color: "#9333ea" }}>
+                        Ajuste de títulos (sin flujo de dinero)
+                    </span>
+                </div>
+            )}
 
             {error && <p className={styles.error}>{error}</p>}
 
@@ -417,8 +635,9 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 disabled={!isValid || saving}
                 id="inv-submit-btn"
             >
-                {saving ? "Guardando..." : `Registrar ${type}`}
+                {saving ? "Guardando..." : isSplit ? "Registrar Split" : `Registrar ${type}`}
             </button>
         </form>
     );
 }
+

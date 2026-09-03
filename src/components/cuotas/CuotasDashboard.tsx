@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import styles from "./CuotasDashboard.module.css";
-import { Instalment, PagoTarjeta, calculateProjectedPayments } from "@/lib/utils/cuotas";
+import {
+    Instalment,
+    PagoTarjeta,
+    calculateProjectedPayments,
+    TarjetaInfo,
+    DEFAULT_CARD_COLORS
+} from "@/lib/utils/cuotas";
 import { Bar } from "react-chartjs-2";
 import TarjetasManager from "./TarjetasManager";
 import PagoTarjetaModal from "./PagoTarjetaModal";
+import EditableTable, { ColumnDef } from "@/components/shared/EditableTable";
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -28,30 +35,29 @@ export default function CuotasDashboard() {
     const [totalAmount, setTotalAmount] = useState("");
     const [instalmentsCount, setInstalmentsCount] = useState("1");
     const [startMonth, setStartMonth] = useState("");
-    const [tarjetas, setTarjetas] = useState<{ id: string, nombre: string }[]>([]);
+    const [tarjetas, setTarjetas] = useState<TarjetaInfo[]>([]);
     const [selectedTarjeta, setSelectedTarjeta] = useState("");
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     
     // Summary next-month filter state
     const [nextMonthFilter, setNextMonthFilter] = useState("Total");
+    const [visibleLimit, setVisibleLimit] = useState(10);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    useEffect(() => {
-        // Init Start Month as Next Month
-        const date = new Date();
-        date.setMonth(date.getMonth() + 1);
-        const mm = (date.getMonth() + 1).toString().padStart(2, '0');
-        const yyyy = date.getFullYear();
-        setStartMonth(`${mm}/${yyyy}`);
-
-        fetchData();
-        fetch("/api/tarjetas").then(r => r.json()).then(d => {
-            if (d.data) setTarjetas(d.data);
-        }).catch(e => console.error(e));
+    const fetchTarjetas = useCallback(async () => {
+        try {
+            const res = await fetch("/api/tarjetas");
+            if (res.ok) {
+                const json = await res.json();
+                setTarjetas(json.data || []);
+            }
+        } catch (e) {
+            console.error("Error fetching tarjetas:", e);
+        }
     }, []);
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         try {
             const [cuotasRes, pagosRes] = await Promise.all([
@@ -68,27 +74,101 @@ export default function CuotasDashboard() {
                 setPagos(json.data || []);
             }
         } catch (e) {
-            console.error(e);
+            console.error("Error fetching data:", e);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        // Init Start Month as Next Month
+        const date = new Date();
+        date.setMonth(date.getMonth() + 1);
+        const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+        const yyyy = date.getFullYear();
+        setStartMonth(`${mm}/${yyyy}`);
+
+        fetchData();
+        fetchTarjetas();
+
+        const handleUpdates = () => {
+            fetchData();
+            fetchTarjetas();
+        };
+
+        window.addEventListener("tarjetas_updated", handleUpdates);
+        window.addEventListener("pagos_updated", handleUpdates);
+
+        return () => {
+            window.removeEventListener("tarjetas_updated", handleUpdates);
+            window.removeEventListener("pagos_updated", handleUpdates);
+        };
+    }, [fetchData, fetchTarjetas]);
+
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     const handleDelete = async (id: string) => {
         if (!window.confirm("¿Seguro que querés eliminar esta cuota? Esto revertirá su proyección.")) return;
+        setErrorMsg(null);
         try {
             const res = await fetch(`/api/cuotas/${id}`, { method: "DELETE" });
             if (res.ok) {
                 fetchData();
+            } else {
+                const data = await res.json().catch(() => ({}));
+                setErrorMsg(data.error || "No se pudo eliminar la cuota.");
             }
-        } catch (e) {
+        } catch (e: unknown) {
             console.error(e);
+            setErrorMsg("Error de conexión al eliminar la cuota. Verificá tu conexión.");
+        }
+    };
+
+    const handleEditInstalment = async (id: string, field: string, value: unknown) => {
+        setErrorMsg(null);
+        try {
+            const res = await fetch(`/api/cuotas/${id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ field, value }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data.error || "Error al actualizar la cuota.");
+            }
+            fetchData();
+        } catch (err: unknown) {
+            console.error(err);
+            const msg = err instanceof Error ? err.message : "Error al actualizar la cuota.";
+            setErrorMsg(msg);
+            throw err;
         }
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!concept || !totalAmount || !instalmentsCount || !startMonth) return;
+        setErrorMsg(null);
+
+        const cleanConcept = concept.trim();
+        const parsedTotal = parseFloat(totalAmount);
+        const parsedCount = parseInt(instalmentsCount, 10);
+
+        if (!cleanConcept) {
+            setErrorMsg("El concepto de la compra financiada es obligatorio.");
+            return;
+        }
+        if (isNaN(parsedTotal) || parsedTotal <= 0) {
+            setErrorMsg("El monto total a financiar debe ser mayor a cero.");
+            return;
+        }
+        if (isNaN(parsedCount) || parsedCount < 1) {
+            setErrorMsg("La cantidad de cuotas debe ser al menos 1.");
+            return;
+        }
+        if (!startMonth) {
+            setErrorMsg("El mes de inicio del pago es obligatorio.");
+            return;
+        }
 
         setIsSubmitting(true);
 
@@ -103,24 +183,26 @@ export default function CuotasDashboard() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     date: `${dd}/${mm}/${yyyy}`,
-                    concept,
-                    totalAmount: parseFloat(totalAmount),
-                    instalmentsCount: parseInt(instalmentsCount),
+                    concept: cleanConcept,
+                    totalAmount: parsedTotal,
+                    instalmentsCount: parsedCount,
                     startMonth,
                     tarjeta: selectedTarjeta
                 })
             });
 
+            const data = await res.json().catch(() => ({}));
             if (res.ok) {
                 setConcept("");
                 setTotalAmount("");
                 setInstalmentsCount("1");
                 fetchData();
             } else {
-                alert("Error al guardar la cuota.");
+                setErrorMsg(data.error || "Error al guardar la cuota.");
             }
-        } catch (error) {
+        } catch (error: unknown) {
             console.error(error);
+            setErrorMsg("Error de conexión al guardar la cuota. Verificá tu red.");
         } finally {
             setIsSubmitting(false);
         }
@@ -162,34 +244,100 @@ export default function CuotasDashboard() {
         return { projections: projs, totalDebt: debt, monthlyData: grouped, nextMonthTotal, nextMonthKey };
     }, [instalments, pagos, nextMonthFilter]);
 
+    // ─── Stacked Chart Data by Card Color ───────────────────────────────────────
     const chartData = useMemo(() => {
-        const labels = Object.keys(monthlyData);
-        const data = Object.values(monthlyData);
+        // 1. Get all chronological months from projections
+        const monthsSet = new Set<string>();
+        projections.forEach(p => monthsSet.add(p.monthKey));
+        
+        const labels = Array.from(monthsSet).sort((a, b) => {
+            const [ma, ya] = a.split('/').map(Number);
+            const [mb, yb] = b.split('/').map(Number);
+            if (ya !== yb) return ya - yb;
+            return ma - mb;
+        });
 
-        let isDark = false;
-        if (typeof document !== 'undefined') {
-            isDark = document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        }
+        // 2. Map card name (lowercase trim) -> color
+        const cardColorMap: Record<string, string> = {};
+        tarjetas.forEach((t, i) => {
+            cardColorMap[t.nombre.toLowerCase().trim()] = t.color || DEFAULT_CARD_COLORS[i % DEFAULT_CARD_COLORS.length];
+        });
 
-        return {
-            labels,
-            datasets: [
-                {
-                    label: "Vencimientos Futuros (Monto ARS)",
-                    data,
-                    backgroundColor: "rgba(224, 114, 107, 0.7)", // var(--danger-color) mostly 
-                    borderColor: "#e0726b",
-                    borderWidth: 1,
-                    borderRadius: 8,
-                }
-            ]
-        };
-    }, [monthlyData]);
+        // 3. Find distinct card keys present in projections
+        const usedCards = new Set<string>();
+        projections.forEach(p => {
+            if (p.tarjeta && p.tarjeta.trim()) {
+                usedCards.add(p.tarjeta.trim());
+            } else {
+                usedCards.add("_sin_tarjeta");
+            }
+        });
+
+        // 4. Build monthly sum matrix: matrix[cardKey][monthKey] = amount
+        const matrix: Record<string, Record<string, number>> = {};
+        usedCards.forEach(card => {
+            matrix[card] = {};
+            labels.forEach(m => { matrix[card][m] = 0; });
+        });
+
+        projections.forEach(p => {
+            const cardKey = (p.tarjeta && p.tarjeta.trim()) ? p.tarjeta.trim() : "_sin_tarjeta";
+            if (matrix[cardKey]) {
+                matrix[cardKey][p.monthKey] = (matrix[cardKey][p.monthKey] || 0) + p.amount;
+            }
+        });
+
+        // 5. Build Chart.js stacked datasets
+        const datasets = Array.from(usedCards).map((cardKey, idx) => {
+            const isGeneral = cardKey === "_sin_tarjeta";
+            const label = isGeneral ? "Sin Tarjeta / General" : cardKey;
+            const color = isGeneral
+                ? "#94a3b8"
+                : (cardColorMap[cardKey.toLowerCase()] || DEFAULT_CARD_COLORS[idx % DEFAULT_CARD_COLORS.length]);
+
+            return {
+                label,
+                data: labels.map(m => matrix[cardKey][m] || 0),
+                backgroundColor: color,
+                borderColor: color,
+                borderWidth: 1,
+                borderRadius: 4,
+                stack: 'vencimientos',
+            };
+        });
+
+        return { labels, datasets };
+    }, [projections, tarjetas]);
 
     const fmt = (val: number) => new Intl.NumberFormat('es-AR', {
         style: 'currency',
         currency: 'ARS',
     }).format(val);
+
+    // EditableTable column definitions for instalments
+    const instalmentColumns: ColumnDef[] = [
+        { key: "date",              header: "Fecha",          editable: true,  type: "date",   width: "110px" },
+        { key: "concept",           header: "Concepto",       editable: true,  type: "text",   width: "160px" },
+        { key: "total_amount",      header: "Total",          editable: true,  type: "number", width: "120px",
+          render: (val) => <span style={{ color: "var(--danger-color)", fontWeight: 600 }}>-{fmt(Number(val) || 0)}</span> },
+        { key: "instalments_count", header: "# Cuotas",       editable: true,  type: "number", width: "80px" },
+        { key: "cuota_mes",         header: "Cuota/mes",      editable: false, type: "readonly", width: "120px",
+          render: (_val, row) => <span style={{ color: "var(--danger-color)" }}>{fmt((Number(row.total_amount) || 0) / Math.max(Number(row.instalments_count) || 1, 1))}</span> },
+        { key: "start_month",       header: "Desde",          editable: true,  type: "text",   width: "90px" },
+        { key: "tarjeta",           header: "Tarjeta",        editable: true,  type: "select",
+          options: ["", ...tarjetas.map(t => t.nombre)],  width: "120px" },
+    ];
+
+    const instalmentRows = instalments.map(inst => ({
+        id: inst.id || "",
+        date: inst.date,
+        concept: inst.concept,
+        total_amount: inst.totalAmount,
+        instalments_count: inst.instalmentsCount,
+        start_month: inst.startMonth,
+        tarjeta: inst.tarjeta || "",
+    }));
+
 
     if (loading) {
         return (
@@ -209,6 +357,29 @@ export default function CuotasDashboard() {
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+
+            {errorMsg && (
+                <div style={{
+                    color: "var(--danger-color, #ef4444)",
+                    backgroundColor: "rgba(239, 68, 68, 0.1)",
+                    border: "1px solid rgba(239, 68, 68, 0.2)",
+                    padding: "12px 16px",
+                    borderRadius: "8px",
+                    fontSize: "0.9rem",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center"
+                }}>
+                    <span>⚠️ {errorMsg}</span>
+                    <button
+                        onClick={() => setErrorMsg(null)}
+                        style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", fontSize: "1.2rem", lineHeight: 1 }}
+                        title="Cerrar advertencia"
+                    >
+                        &times;
+                    </button>
+                </div>
+            )}
 
             {/* Top Summaries */}
             <div className={styles.summaryGrid} style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
@@ -251,15 +422,17 @@ export default function CuotasDashboard() {
                 </div>
             </div>
 
-            {/* Tarjetas Manager */}
-            <TarjetasManager />
-
-            {/* Projection Chart */}
+            {/* Projection Stacked Chart */}
             <section className={`glass-panel ${styles.card}`}>
                 <div className={styles.headerWithTabs}>
-                    <h3 className="text-muted">Proyección de Vencimientos</h3>
+                    <div>
+                        <h3 className="text-muted">Proyección de Vencimientos por Tarjeta</h3>
+                        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+                            Barras apiladas con el color asignado a cada tarjeta para visualizar la composición de la deuda mes a mes.
+                        </p>
+                    </div>
                 </div>
-                <div style={{ height: "300px", width: "100%" }}>
+                <div style={{ height: "320px", width: "100%" }}>
                     {chartData.labels.length > 0 ? (
                         <Bar
                             data={chartData}
@@ -267,22 +440,48 @@ export default function CuotasDashboard() {
                                 responsive: true,
                                 maintainAspectRatio: false,
                                 plugins: {
-                                    legend: { position: 'bottom', labels: { color: chartTextColor } },
+                                    legend: {
+                                        position: 'bottom',
+                                        labels: {
+                                            color: chartTextColor,
+                                            usePointStyle: true,
+                                            pointStyle: 'circle',
+                                            padding: 16,
+                                            font: { size: 12 }
+                                        }
+                                    },
                                     tooltip: {
                                         callbacks: {
-                                            label: (ctx) => `Vencimiento: ${fmt(ctx.raw as number)}`
+                                            label: (ctx) => ` ${ctx.dataset.label}: ${fmt(ctx.raw as number)}`,
+                                            footer: (tooltipItems) => {
+                                                if (!tooltipItems.length) return "";
+                                                const index = tooltipItems[0].dataIndex;
+                                                const total = tooltipItems[0].chart.data.datasets.reduce((sum, ds) => {
+                                                    const val = Number(ds.data[index]) || 0;
+                                                    return sum + val;
+                                                }, 0);
+                                                return ` Total Mes: ${fmt(total)}`;
+                                            }
                                         }
                                     }
                                 },
                                 scales: {
-                                    x: { ticks: { color: chartTextColor }, grid: { display: false } },
-                                    y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
+                                    x: {
+                                        stacked: true,
+                                        ticks: { color: chartTextColor },
+                                        grid: { display: false }
+                                    },
+                                    y: {
+                                        stacked: true,
+                                        ticks: { color: chartTextColor },
+                                        grid: { color: chartGridColor }
+                                    }
                                 }
                             }}
                         />
                     ) : (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <p className="text-muted">No hay cuotas proyectadas.</p>
+                            <p className="text-muted">No hay cuotas proyectadas pendientes.</p>
                         </div>
                     )}
                 </div>
@@ -335,7 +534,25 @@ export default function CuotasDashboard() {
                                 type="text"
                                 className={styles.input}
                                 value={startMonth}
-                                onChange={e => setStartMonth(e.target.value)}
+                                onFocus={e => e.target.select()}
+                                onChange={e => {
+                                    const raw = e.target.value;
+                                    if (raw.length < startMonth.length) {
+                                        if (raw.endsWith("/")) setStartMonth(raw.slice(0, -1));
+                                        else setStartMonth(raw);
+                                        return;
+                                    }
+                                    const digits = raw.replace(/\D/g, "").slice(0, 6);
+                                    if (digits.length === 0) {
+                                        setStartMonth("");
+                                    } else if (digits.length < 2) {
+                                        setStartMonth(digits);
+                                    } else if (digits.length === 2) {
+                                        setStartMonth(`${digits}/`);
+                                    } else {
+                                        setStartMonth(`${digits.slice(0, 2)}/${digits.slice(2)}`);
+                                    }
+                                }}
                                 pattern="(0[1-9]|1[0-2])\/20[0-9]{2}"
                                 required
                                 placeholder="04/2026"
@@ -350,7 +567,11 @@ export default function CuotasDashboard() {
                                 onChange={e => setSelectedTarjeta(e.target.value)}
                             >
                                 <option value="">- Ninguna / General -</option>
-                                {tarjetas.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                                {tarjetas.map(t => (
+                                    <option key={t.id} value={t.nombre}>
+                                        {t.nombre}
+                                    </option>
+                                ))}
                             </select>
                         </div>
                     </div>
@@ -360,53 +581,59 @@ export default function CuotasDashboard() {
                 </form>
             </section>
 
+            {/* Tarjetas Manager with Table View */}
+            <TarjetasManager />
+
             {/* List */}
             <section className={`glass-panel ${styles.card}`}>
-                <div className={styles.headerWithTabs}>
+                <div className={styles.headerWithTabs} style={{ marginBottom: "16px" }}>
                     <h3 className="text-muted">Desglose de Cuotas Activas</h3>
                 </div>
 
-                {instalments.length === 0 ? (
-                    <p className="text-muted text-center" style={{ marginTop: "20px" }}>No hay cuotas registradas aún.</p>
-                ) : (
-                    <ul className={styles.txList}>
-                        {instalments.map((inst, idx) => {
-                            const val = inst.totalAmount / inst.instalmentsCount;
+                <EditableTable
+                    columns={instalmentColumns}
+                    rows={instalmentRows.slice(0, visibleLimit)}
+                    onEdit={handleEditInstalment}
+                    onDelete={handleDelete}
+                    idField="id"
+                    searchable={true}
+                    filters={[
+                        {
+                            key: "tarjeta",
+                            label: "Tarjeta",
+                            options: [
+                                { value: "", label: "Todas las tarjetas" },
+                                ...tarjetas.map(t => ({ value: t.nombre, label: t.nombre })),
+                            ]
+                        }
+                    ]}
+                    defaultSortKey="date"
+                    defaultSortDir="desc"
+                    emptyMessage="No hay cuotas registradas aún."
+                />
 
-                            return (
-                                <li key={inst.id || idx} className={styles.txItem}>
-                                    <div className={styles.txInfo}>
-                                        <div className={styles.txIcon} style={{ color: "var(--danger-color)" }}>
-                                            💳
-                                        </div>
-                                        <div>
-                                            <p className={styles.txTitle}>{inst.concept}</p>
-                                            <p className={styles.txDate}>Registrado el {inst.date} • Base: {inst.instalmentsCount} cuotas desde {inst.startMonth}</p>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
-                                        <div style={{ textAlign: "right" }}>
-                                            <div className={styles.txAmount} style={{ color: "var(--danger-color)" }}>
-                                                -{fmt(val)} <span style={{ fontSize: "0.8rem", fontWeight: "normal" }}>/mes</span>
-                                            </div>
-                                            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                                                Total: {fmt(inst.totalAmount)}
-                                            </div>
-                                        </div>
-                                        <button
-                                            onClick={() => inst.id && handleDelete(inst.id)}
-                                            style={{ background: "none", border: "none", color: "var(--danger-color)", cursor: "pointer", fontSize: "1.2rem", padding: "0 8px" }}
-                                            title="Eliminar cuota"
-                                        >
-                                            ×
-                                        </button>
-                                    </div>
-                                </li>
-                            )
-                        })}
-                    </ul>
+                {instalmentRows.length > visibleLimit && (
+                    <button
+                        type="button"
+                        className={styles.submitBtn}
+                        style={{
+                            margin: "16px auto 0 auto",
+                            maxWidth: "320px",
+                            background: "var(--surface-hover, rgba(0, 0, 0, 0.06))",
+                            color: "var(--text-main)",
+                            border: "1px solid var(--glass-border)",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            padding: "10px 20px"
+                        }}
+                        onClick={() => setVisibleLimit(prev => prev + 10)}
+                    >
+                        Ver más cuotas ({instalmentRows.length - visibleLimit} restantes) 👇
+                    </button>
                 )}
             </section>
+
 
             {isPaymentModalOpen && (
                 <PagoTarjetaModal
@@ -415,9 +642,8 @@ export default function CuotasDashboard() {
                     onClose={() => setIsPaymentModalOpen(false)}
                     onSuccess={() => {
                         setIsPaymentModalOpen(false);
-                        // Cuando liquidamos una tarjeta, se debe recargar todo The charts will need the updated pagos
                         fetchData();
-                        // Deberíamos despachar un evento o recargar para limpiar las cuotas pagas.
+                        fetchTarjetas();
                         window.dispatchEvent(new Event("pagos_updated"));
                     }}
                 />
@@ -425,3 +651,4 @@ export default function CuotasDashboard() {
         </div>
     );
 }
+

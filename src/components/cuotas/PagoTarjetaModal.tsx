@@ -2,10 +2,10 @@
 
 import { useState, useMemo, useEffect } from "react";
 import styles from "../dashboard/ValidationModal.module.css";
-import { Instalment, calculateProjectedPayments } from "@/lib/utils/cuotas";
+import { Instalment, calculateProjectedPayments, TarjetaInfo, getEstimatedCardDates } from "@/lib/utils/cuotas";
 
 interface PagoTarjetaModalProps {
-    tarjetas: { id: string, nombre: string }[];
+    tarjetas: TarjetaInfo[];
     instalments: Instalment[];
     onClose: () => void;
     onSuccess: () => void;
@@ -15,8 +15,11 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
     const [selectedTarjeta, setSelectedTarjeta] = useState("");
     const [selectedMes, setSelectedMes] = useState("");
     const [fechaCierre, setFechaCierre] = useState("");
+    const [proximoCierre, setProximoCierre] = useState("");
+    const [proximoVencimiento, setProximoVencimiento] = useState("");
     const [montoManual, setMontoManual] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
     // Initialize the default closing date as today
     useEffect(() => {
@@ -26,9 +29,28 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
         const yyyy = today.getFullYear();
         setFechaCierre(`${dd}/${mm}/${yyyy}`);
 
-        // Also initialize an available month based on current date
         setMontoManual("");
     }, []);
+
+    // When tarjeta changes, auto-suggest next dates
+    useEffect(() => {
+        if (!selectedTarjeta) {
+            setProximoCierre("");
+            setProximoVencimiento("");
+            return;
+        }
+
+        const card = tarjetas.find(t => t.nombre === selectedTarjeta);
+        if (card) {
+            // Calculate next month's estimated dates
+            const now = new Date();
+            const nextMonthRef = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            const estimated = getEstimatedCardDates(card.diaCierre || 20, card.diaVencimiento || 5, nextMonthRef);
+
+            setProximoCierre(card.proximoCierre || estimated.nextClosingDate);
+            setProximoVencimiento(card.proximoVencimiento || estimated.nextDueDate);
+        }
+    }, [selectedTarjeta, tarjetas]);
 
     // Extract all unique months we have projected debt on for dropdown
     const availableMonths = useMemo(() => {
@@ -37,7 +59,7 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
         projs.forEach(p => {
             if (p.tarjeta) months.add(p.monthKey);
         });
-        // Sort cronologically
+        // Sort chronologically
         return Array.from(months).sort((a, b) => {
             const [ma, ya] = a.split('/').map(Number);
             const [mb, yb] = b.split('/').map(Number);
@@ -46,7 +68,7 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
         });
     }, [instalments]);
 
-    // Make sure we just default to the first one available if not selected yet
+    // Make sure we default to the first one available if not selected yet
     useEffect(() => {
         if (!selectedMes && availableMonths.length > 0) {
             setSelectedMes(availableMonths[0]);
@@ -58,7 +80,7 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
 
         const projs = calculateProjectedPayments(instalments);
         return projs
-            .filter(p => p.tarjeta === selectedTarjeta && p.monthKey === selectedMes)
+            .filter(p => p.tarjeta?.toLowerCase() === selectedTarjeta.toLowerCase() && p.monthKey === selectedMes)
             .reduce((acc, curr) => acc + curr.amount, 0);
     }, [selectedTarjeta, selectedMes, instalments]);
 
@@ -74,8 +96,17 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
     const handleSave = async () => {
         if (!selectedTarjeta || !selectedMes || !fechaCierre || !montoManual) return;
 
+        const parsedAmount = parseFloat(montoManual);
+        if (isNaN(parsedAmount) || parsedAmount <= 0) {
+            setErrorMsg("El monto total pagado debe ser un número mayor a cero.");
+            return;
+        }
+
         setIsSaving(true);
+        setErrorMsg(null);
+
         try {
+            // 1. Asentar el pago de la tarjeta
             const res = await fetch("/api/pagos_tarjetas", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -83,16 +114,30 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
                     closingDate: fechaCierre,
                     tarjeta: selectedTarjeta,
                     period: selectedMes,
-                    amount: parseFloat(montoManual)
+                    amount: parsedAmount
                 })
             });
 
-            if (!res.ok) throw new Error("Error al asentar el pago de la tarjeta");
+            const resData = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(resData.error || "Error al asentar el pago de la tarjeta");
+
+            // 2. Actualizar las próximas fechas en la tarjeta seleccionada si se especificaron
+            const card = tarjetas.find(t => t.nombre === selectedTarjeta);
+            if (card?.id && (proximoCierre || proximoVencimiento)) {
+                await fetch(`/api/tarjetas/${card.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        proximoCierre,
+                        proximoVencimiento,
+                    })
+                }).catch(err => console.warn("Aviso: No se pudieron actualizar fechas en tarjeta:", err));
+            }
 
             onSuccess();
-        } catch (e) {
+        } catch (e: unknown) {
             console.error(e);
-            alert("No pudimos liquidar la tarjeta.");
+            setErrorMsg(e instanceof Error ? e.message : "No pudimos liquidar la tarjeta. Verificá tu conexión.");
         } finally {
             setIsSaving(false);
         }
@@ -107,8 +152,21 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
                 </div>
 
                 <div className={styles.scrollArea}>
+                    {errorMsg && (
+                        <div style={{
+                            color: "var(--danger-color, #ef4444)",
+                            backgroundColor: "rgba(239, 68, 68, 0.1)",
+                            border: "1px solid rgba(239, 68, 68, 0.2)",
+                            padding: "10px 14px",
+                            borderRadius: "8px",
+                            marginBottom: "16px",
+                            fontSize: "0.85rem"
+                        }}>
+                            ⚠️ {errorMsg}
+                        </div>
+                    )}
                     <p style={{ color: 'var(--text-muted)', marginBottom: 20 }}>
-                        Cerrá tu tarjeta indicando el período y verificá el total. Al confirmar, descontaremos del calendario todas las cuotas relativas a este período.
+                        Cerrá tu tarjeta indicando el período y verificá el total. Al confirmar, descontaremos del calendario todas las cuotas relativas a este período y actualizaremos las próximas fechas estimadas.
                     </p>
 
                     <div className={styles.formGrid}>
@@ -120,7 +178,11 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
                                 onChange={e => setSelectedTarjeta(e.target.value)}
                             >
                                 <option value="">- Seleccioná una tarjeta -</option>
-                                {tarjetas.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                                {tarjetas.map(t => (
+                                    <option key={t.id} value={t.nombre}>
+                                        {t.nombre}
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
@@ -164,6 +226,30 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
                                 placeholder="Monto total del resumen"
                             />
                         </div>
+
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label}>Próximo Cierre (Opcional / Sugerido)</label>
+                            <input
+                                type="text"
+                                className={styles.inputStyle}
+                                value={proximoCierre}
+                                onChange={e => setProximoCierre(e.target.value)}
+                                placeholder="DD/MM/YYYY"
+                                title="Podés ajustar la próxima fecha de cierre informada en tu resumen"
+                            />
+                        </div>
+
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label}>Próximo Vencimiento (Opcional / Sugerido)</label>
+                            <input
+                                type="text"
+                                className={styles.inputStyle}
+                                value={proximoVencimiento}
+                                onChange={e => setProximoVencimiento(e.target.value)}
+                                placeholder="DD/MM/YYYY"
+                                title="Podés ajustar el próximo vencimiento informado en tu resumen"
+                            />
+                        </div>
                     </div>
                 </div>
 
@@ -179,7 +265,7 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
                         <button
                             className={styles.saveBtn}
                             onClick={handleSave}
-                            disabled={isSaving || !selectedTarjeta || !selectedMes || !montoManual || !fechaCierre}
+                            disabled={isSaving || !selectedTarjeta || !selectedMes || !montoManual || parseFloat(montoManual) <= 0 || !fechaCierre}
                         >
                             {isSaving ? "Liquidando..." : "Confirmar Vencimiento"}
                         </button>
@@ -189,3 +275,4 @@ export default function PagoTarjetaModal({ tarjetas, instalments, onClose, onSuc
         </div>
     );
 }
+

@@ -2,17 +2,24 @@
 
 import { useEffect, useState } from "react";
 import styles from "./CuotasDashboard.module.css";
-
-interface Tarjeta {
-    id: string;
-    nombre: string;
-}
+import { DEFAULT_CARD_COLORS, getEstimatedCardDates, TarjetaInfo } from "@/lib/utils/cuotas";
+import { formatAutoDateInput } from "@/lib/utils/format";
 
 export default function TarjetasManager() {
-    const [tarjetas, setTarjetas] = useState<Tarjeta[]>([]);
+    const [tarjetas, setTarjetas] = useState<TarjetaInfo[]>([]);
     const [loading, setLoading] = useState(true);
+    
+    // Form to create new card
     const [nuevaTarjeta, setNuevaTarjeta] = useState("");
+    const [nuevoColor, setNuevoColor] = useState(DEFAULT_CARD_COLORS[0]);
+    const [nuevoDiaCierre, setNuevoDiaCierre] = useState("20");
+    const [nuevoDiaVencimiento, setNuevoDiaVencimiento] = useState("5");
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    // Edit state for table rows
+    const [editingCards, setEditingCards] = useState<Record<string, Partial<TarjetaInfo>>>({});
+    const [savingRowId, setSavingRowId] = useState<string | null>(null);
+    const [savedSuccessId, setSavedSuccessId] = useState<string | null>(null);
 
     useEffect(() => {
         fetchTarjetas();
@@ -24,12 +31,32 @@ export default function TarjetasManager() {
             const res = await fetch("/api/tarjetas");
             if (res.ok) {
                 const json = await res.json();
-                setTarjetas(json.data || []);
+                const cards: TarjetaInfo[] = (json.data || []).map((t: any, i: number) => {
+                    const diaC = t.diaCierre || 20;
+                    const diaV = t.diaVencimiento || 5;
+                    const estimated = getEstimatedCardDates(diaC, diaV);
+                    return {
+                        id: t.id,
+                        nombre: t.nombre,
+                        color: t.color || DEFAULT_CARD_COLORS[i % DEFAULT_CARD_COLORS.length],
+                        diaCierre: diaC,
+                        diaVencimiento: diaV,
+                        proximoCierre: t.proximoCierre || estimated.nextClosingDate,
+                        proximoVencimiento: t.proximoVencimiento || estimated.nextDueDate,
+                    };
+                });
+                setTarjetas(cards);
             }
         } catch (e) {
-            console.error(e);
+            console.error("Error fetching tarjetas:", e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const notifyUpdate = () => {
+        if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("tarjetas_updated"));
         }
     };
 
@@ -39,15 +66,30 @@ export default function TarjetasManager() {
 
         setIsSubmitting(true);
         try {
+            const diaC = parseInt(nuevoDiaCierre, 10) || 20;
+            const diaV = parseInt(nuevoDiaVencimiento, 10) || 5;
+            const estimated = getEstimatedCardDates(diaC, diaV);
+
             const res = await fetch("/api/tarjetas", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ nombre: nuevaTarjeta.trim() })
+                body: JSON.stringify({
+                    nombre: nuevaTarjeta.trim(),
+                    color: nuevoColor,
+                    diaCierre: diaC,
+                    diaVencimiento: diaV,
+                    proximoCierre: estimated.nextClosingDate,
+                    proximoVencimiento: estimated.nextDueDate,
+                })
             });
 
             if (res.ok) {
                 setNuevaTarjeta("");
-                fetchTarjetas();
+                // Rotate to next default color for next card
+                const nextColorIdx = (DEFAULT_CARD_COLORS.indexOf(nuevoColor) + 1) % DEFAULT_CARD_COLORS.length;
+                setNuevoColor(DEFAULT_CARD_COLORS[nextColorIdx >= 0 ? nextColorIdx : 0]);
+                await fetchTarjetas();
+                notifyUpdate();
             } else {
                 alert("Error al guardar la tarjeta.");
             }
@@ -58,13 +100,83 @@ export default function TarjetasManager() {
         }
     };
 
+    const handleFieldChange = (cardId: string, field: keyof TarjetaInfo, value: any) => {
+        setEditingCards(prev => {
+            const current = prev[cardId] || {};
+            const updated = { ...current, [field]: value };
+
+            // If user modifies diaCierre, auto-estimate new nextClosingDate if not manually customized
+            if (field === "diaCierre") {
+                const diaC = parseInt(value, 10) || 20;
+                const card = tarjetas.find(t => t.id === cardId);
+                const diaV = updated.diaVencimiento ?? card?.diaVencimiento ?? 5;
+                const estimated = getEstimatedCardDates(diaC, diaV);
+                updated.proximoCierre = estimated.nextClosingDate;
+                updated.proximoVencimiento = estimated.nextDueDate;
+            }
+
+            return { ...prev, [cardId]: updated };
+        });
+    };
+
+    const handleDateFieldChange = (cardId: string, field: "proximoCierre" | "proximoVencimiento", rawVal: string, prevVal: string = "") => {
+        const formatted = formatAutoDateInput(rawVal, prevVal);
+        handleFieldChange(cardId, field, formatted);
+    };
+
+    const handleSaveRow = async (cardId: string) => {
+        const card = tarjetas.find(t => t.id === cardId);
+        const changes = editingCards[cardId];
+        if (!changes || Object.keys(changes).length === 0) return;
+
+        const payload = {
+            nombre: card?.nombre,
+            color: changes.color ?? card?.color,
+            diaCierre: changes.diaCierre ?? card?.diaCierre,
+            diaVencimiento: changes.diaVencimiento ?? card?.diaVencimiento,
+            proximoCierre: changes.proximoCierre !== undefined ? changes.proximoCierre : card?.proximoCierre,
+            proximoVencimiento: changes.proximoVencimiento !== undefined ? changes.proximoVencimiento : card?.proximoVencimiento,
+        };
+
+        setSavingRowId(cardId);
+        try {
+            const res = await fetch(`/api/tarjetas/${encodeURIComponent(cardId)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                // Merge changes into local state
+                setTarjetas(prev => prev.map(t => t.id === cardId ? { ...t, ...changes } : t));
+                setEditingCards(prev => {
+                    const copy = { ...prev };
+                    delete copy[cardId];
+                    return copy;
+                });
+                setSavedSuccessId(cardId);
+                setTimeout(() => setSavedSuccessId(prev => prev === cardId ? null : prev), 2000);
+                notifyUpdate();
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                alert(errData.error || "Error al actualizar la tarjeta.");
+            }
+        } catch (e: any) {
+            console.error(e);
+            alert(e?.message || "No se pudo guardar los cambios.");
+        } finally {
+            setSavingRowId(null);
+        }
+    };
+
     const handleDelete = async (id: string, nombre: string) => {
         if (!window.confirm(`¿Seguro que querés eliminar la tarjeta "${nombre}"?\nNota: Eliminar la tarjeta no borra el historial previo de cuotas.`)) return;
 
         try {
             const res = await fetch(`/api/tarjetas/${id}`, { method: "DELETE" });
             if (res.ok) {
-                fetchTarjetas();
+                await fetchTarjetas();
+                notifyUpdate();
             } else {
                 alert("Error al eliminar.");
             }
@@ -79,46 +191,249 @@ export default function TarjetasManager() {
 
     return (
         <section className={`glass-panel ${styles.card}`}>
-            <h3 className="text-muted" style={{ marginBottom: "16px" }}>Mis Tarjetas de Crédito</h3>
+            <div className={styles.headerWithTabs}>
+                <div>
+                    <h3 className="text-muted">Mis Tarjetas de Crédito</h3>
+                    <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
+                        Personalizá el color y administrá las fechas de cierre y vencimiento para proyectar vencimientos con precisión.
+                    </p>
+                </div>
+            </div>
 
-            <form onSubmit={handleAdd} style={{ display: "flex", gap: "12px", marginBottom: "20px" }}>
-                <input
-                    type="text"
-                    className={styles.input}
-                    value={nuevaTarjeta}
-                    onChange={(e) => setNuevaTarjeta(e.target.value)}
-                    placeholder="Ej. Visa Galicia"
-                    required
-                    style={{ flex: 1 }}
-                />
-                <button type="submit" className={styles.submitBtn} disabled={isSubmitting} style={{ width: "auto" }}>
-                    {isSubmitting ? "Añadiendo..." : "Añadir"}
+            {/* Quick Add Form */}
+            <form onSubmit={handleAdd} style={{ marginBottom: "24px" }}>
+                <div className={styles.formGrid} style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Nombre de la Tarjeta</label>
+                        <input
+                            type="text"
+                            className={styles.input}
+                            value={nuevaTarjeta}
+                            onChange={(e) => setNuevaTarjeta(e.target.value)}
+                            placeholder="Ej. Visa Galicia"
+                            required
+                        />
+                    </div>
+
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Color Asignado</label>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <div className={styles.colorPickerWrapper}>
+                                <div className={styles.colorCircle} style={{ backgroundColor: nuevoColor }} />
+                                <input
+                                    type="color"
+                                    className={styles.colorInputHidden}
+                                    value={nuevoColor}
+                                    onChange={(e) => setNuevoColor(e.target.value)}
+                                    title="Elegir color personalizado"
+                                />
+                            </div>
+                            <div className={styles.colorSwatches}>
+                                {DEFAULT_CARD_COLORS.slice(0, 6).map(c => (
+                                    <button
+                                        type="button"
+                                        key={c}
+                                        className={`${styles.swatchBtn} ${nuevoColor === c ? styles.swatchActive : ""}`}
+                                        style={{ backgroundColor: c }}
+                                        onClick={() => setNuevoColor(c)}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label}>Día Cierre Habitual</label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            className={styles.input}
+                            value={nuevoDiaCierre}
+                            onChange={(e) => setNuevoDiaCierre(e.target.value)}
+                            placeholder="20"
+                            required
+                        />
+                    </div>
+
+                    <div className={styles.inputGroup}>
+                        <label className={styles.label} title="Día del mes en que vence el pago de la tarjeta">
+                            Día Vencimiento (Pago Resumen)
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            max="31"
+                            className={styles.input}
+                            value={nuevoDiaVencimiento}
+                            onChange={(e) => setNuevoDiaVencimiento(e.target.value)}
+                            placeholder="5"
+                            required
+                        />
+                    </div>
+                </div>
+
+                <button type="submit" className={styles.submitBtn} disabled={isSubmitting} style={{ maxWidth: "220px", marginTop: "12px" }}>
+                    {isSubmitting ? "Añadiendo..." : "+ Agregar Tarjeta"}
                 </button>
             </form>
 
+            {/* Visual Cards Table */}
             {tarjetas.length === 0 ? (
-                <p className="text-muted text-center">Aún no hay tarjetas registradas.</p>
+                <p className="text-muted text-center" style={{ padding: "20px" }}>Aún no hay tarjetas registradas.</p>
             ) : (
-                <ul className={styles.txList}>
-                    {tarjetas.map(t => (
-                        <li key={t.id} className={styles.txItem} style={{ padding: "12px" }}>
-                            <div className={styles.txInfo}>
-                                <div className={styles.txIcon} style={{ background: "var(--accent-color)", color: "white" }}>💳</div>
-                                <div>
-                                    <p className={styles.txTitle}>{t.nombre}</p>
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => handleDelete(t.id, t.nombre)}
-                                style={{ background: "none", border: "none", color: "var(--danger-color)", cursor: "pointer", fontSize: "1.2rem", padding: "0 8px" }}
-                                title="Eliminar"
-                            >
-                                ×
-                            </button>
-                        </li>
-                    ))}
-                </ul>
+                <div className={styles.tableResponsive}>
+                    <table className={styles.cardsTable}>
+                        <thead>
+                            <tr>
+                                <th>Tarjeta</th>
+                                <th>Color</th>
+                                <th title="Día mensual en que cierra el resumen">Día Cierre ℹ️</th>
+                                <th title="Fecha exacta del próximo cierre">Próximo Cierre ℹ️</th>
+                                <th title="Día mensual en que vence el pago del resumen de la tarjeta">Día Vto. (Pago) ℹ️</th>
+                                <th title="Fecha exacta del próximo vencimiento para pagar el resumen">Próximo Vencimiento ℹ️</th>
+                                <th style={{ textAlign: "right" }}>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {tarjetas.map(t => {
+                                const edits = editingCards[t.id] || {};
+                                const currentColor = edits.color ?? t.color ?? DEFAULT_CARD_COLORS[0];
+                                const currentDiaC = edits.diaCierre ?? t.diaCierre ?? 20;
+                                const currentDiaV = edits.diaVencimiento ?? t.diaVencimiento ?? 5;
+                                const currentProxC = edits.proximoCierre ?? t.proximoCierre ?? "";
+                                const currentProxV = edits.proximoVencimiento ?? t.proximoVencimiento ?? "";
+                                const isDirty = Object.keys(edits).length > 0;
+                                const isSaving = savingRowId === t.id;
+                                const isSaved = savedSuccessId === t.id;
+
+                                return (
+                                    <tr key={t.id}>
+                                        {/* Card Name */}
+                                        <td>
+                                            <div className={styles.cardNameCell}>
+                                                <div
+                                                    style={{
+                                                        width: "12px",
+                                                        height: "12px",
+                                                        borderRadius: "50%",
+                                                        backgroundColor: currentColor,
+                                                        flexShrink: 0
+                                                    }}
+                                                />
+                                                <span>{t.nombre}</span>
+                                            </div>
+                                        </td>
+
+                                        {/* Color Picker */}
+                                        <td>
+                                            <div className={styles.colorPickerWrapper}>
+                                                <div
+                                                    className={styles.colorCircle}
+                                                    style={{ backgroundColor: currentColor }}
+                                                    title="Click para cambiar color"
+                                                />
+                                                <input
+                                                    type="color"
+                                                    className={styles.colorInputHidden}
+                                                    value={currentColor}
+                                                    onChange={(e) => handleFieldChange(t.id, "color", e.target.value)}
+                                                />
+                                            </div>
+                                        </td>
+
+                                        {/* Día Cierre */}
+                                        <td>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="31"
+                                                className={styles.tableInput}
+                                                style={{ maxWidth: "65px", textAlign: "center" }}
+                                                value={currentDiaC}
+                                                onChange={(e) => handleFieldChange(t.id, "diaCierre", parseInt(e.target.value, 10) || 1)}
+                                                title="Día habitual de cierre mensual"
+                                            />
+                                        </td>
+
+                                        {/* Próximo Cierre */}
+                                        <td>
+                                            <input
+                                                type="text"
+                                                className={styles.tableInput}
+                                                style={{ maxWidth: "110px" }}
+                                                value={currentProxC}
+                                                onFocus={(e) => e.target.select()}
+                                                onChange={(e) => handleDateFieldChange(t.id, "proximoCierre", e.target.value, currentProxC)}
+                                                placeholder="DD/MM/YYYY"
+                                                title="Próxima fecha exacta de cierre"
+                                            />
+                                        </td>
+
+                                        {/* Día Vencimiento */}
+                                        <td>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                max="31"
+                                                className={styles.tableInput}
+                                                style={{ maxWidth: "65px", textAlign: "center" }}
+                                                value={currentDiaV}
+                                                onFocus={(e) => e.target.select()}
+                                                onChange={(e) => handleFieldChange(t.id, "diaVencimiento", parseInt(e.target.value, 10) || 1)}
+                                                title="Día habitual de vencimiento mensual"
+                                            />
+                                        </td>
+
+                                        {/* Próximo Vencimiento */}
+                                        <td>
+                                            <input
+                                                type="text"
+                                                className={styles.tableInput}
+                                                style={{ maxWidth: "110px" }}
+                                                value={currentProxV}
+                                                onFocus={(e) => e.target.select()}
+                                                onChange={(e) => handleDateFieldChange(t.id, "proximoVencimiento", e.target.value, currentProxV)}
+                                                placeholder="DD/MM/YYYY"
+                                                title="Próxima fecha exacta de vencimiento"
+                                            />
+                                        </td>
+
+                                        {/* Actions */}
+                                        <td style={{ textAlign: "right" }}>
+                                            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", alignItems: "center" }}>
+                                                {isDirty ? (
+                                                    <button
+                                                        className={styles.saveRowBtn}
+                                                        onClick={() => handleSaveRow(t.id)}
+                                                        disabled={isSaving}
+                                                    >
+                                                        {isSaving ? "..." : "Guardar"}
+                                                    </button>
+                                                ) : isSaved ? (
+                                                    <span style={{ fontSize: "0.8rem", color: "var(--success-color, #10b981)", fontWeight: 600 }}>
+                                                        ✓ Guardado
+                                                    </span>
+                                                ) : null}
+
+                                                <button
+                                                    onClick={() => handleDelete(t.id, t.nombre)}
+                                                    className={styles.tableActionBtn}
+                                                    style={{ color: "var(--danger-color)" }}
+                                                    title="Eliminar tarjeta"
+                                                >
+                                                    🗑️
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
             )}
         </section>
     );
 }
+

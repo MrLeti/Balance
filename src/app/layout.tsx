@@ -1,5 +1,7 @@
 import "./globals.css";
 import AuthProvider from "@/components/auth/AuthProvider";
+import TransactionFAB from "@/components/dashboard/TransactionFAB";
+import Sidebar from "@/components/layout/Sidebar";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -20,7 +22,15 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192x192.png" />
       </head>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <div className="app-shell">
+            <Sidebar />
+            <div className="app-main">
+              {children}
+            </div>
+          </div>
+          <TransactionFAB />
+        </AuthProvider>
       </body>
     </html>
   );

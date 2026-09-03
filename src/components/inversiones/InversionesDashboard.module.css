@@ -137,13 +137,14 @@
 
 .table th {
     text-align: left;
-    padding: 10px 12px;
-    font-size: 0.75rem;
-    font-weight: 600;
+    padding: 12px 14px;
+    font-size: 0.78rem;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--text-muted);
-    border-bottom: 1px solid var(--glass-border);
+    color: var(--text-main);
+    background: var(--md-sys-color-surface-container-high, var(--glass-bg));
+    border-bottom: 2px solid var(--glass-border);
     white-space: nowrap;
 }
 
@@ -504,4 +505,191 @@
     background: rgba(139, 92, 246, 0.12);
     color: #7c3aed;
 }
+
+/* ─── Currency Switcher & Top Header ─── */
+.topBar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.topBarTitle {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cclIndicator {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: var(--surface-subtle);
+    padding: 4px 10px;
+    border-radius: 99px;
+    border: 1px solid var(--glass-border);
+}
+
+.currencyToggle {
+    display: inline-flex;
+    background: var(--surface-subtle);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 3px;
+    gap: 2px;
+}
+
+.currencyBtn {
+    background: transparent;
+    border: none;
+    padding: 6px 14px;
+    border-radius: 9px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.currencyBtn:hover {
+    color: var(--text-main);
+}
+
+.currencyBtnActive {
+    background: var(--accent-color);
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* ─── Split and Currency Badges ─── */
+.txSplit {
+    background: rgba(168, 85, 247, 0.15) !important;
+    color: #9333ea !important;
+}
+
+.currencyBadge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+/* ─── Benchmark Toggles ─── */
+.benchmarkToggles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.benchmarkChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 99px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid var(--glass-border);
+    background: var(--bg-color);
+    color: var(--text-muted);
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.benchmarkChip:hover {
+    border-color: var(--accent-color);
+    color: var(--text-main);
+}
+
+.benchmarkChipActive {
+    background: var(--surface-subtle);
+    color: var(--text-main);
+    border-color: var(--accent-color);
+}
+
+.chipDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+/* ─── Sources Footer ─── */
+.sourcesFooter {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    border-radius: 16px;
+    border: 1px solid var(--glass-border);
+    margin-top: 12px;
+}
+
+.footerHeader h4 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin: 0 0 4px 0;
+    color: var(--text-main);
+}
+
+.footerSubtitle {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin: 0;
+}
+
+.sourcesGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.sourceItem {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sourceTag {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--accent-color);
+}
+
+.sourceDesc {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin: 0;
+}
+
+.sourceLink {
+    color: var(--text-main);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: rgba(255, 255, 255, 0.3);
+    transition: all 0.15s ease;
+}
+
+.sourceLink:hover {
+    color: var(--accent-color);
+    text-decoration-color: var(--accent-color);
+}
+
+
+
 

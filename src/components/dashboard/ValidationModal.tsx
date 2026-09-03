@@ -1,157 +1,426 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import styles from "./ValidationModal.module.css";
-import { CATEGORIES, ExtractedItem } from "@/lib/constants";
+import { CATEGORIES, ExtractedItem, TrxType, CategoryItem } from "@/lib/constants";
+import { parseSafeAmount, fmt } from "@/lib/utils/format";
 
 interface ValidationModalProps {
-    items: ExtractedItem[];
+    items?: ExtractedItem[];
+    initialType?: TrxType;
     onClose: () => void;
     onSuccess: () => void;
 }
 
-export default function ValidationModal({ items, onClose, onSuccess }: ValidationModalProps) {
-    const [editableItems, setEditableItems] = useState(
-        items.map((item) => ({ ...item, isConfirmed: false }))
-    );
+// Image compression helper for mobile uploads
+const compressImage = async (file: File): Promise<File> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+                const canvas = document.createElement("canvas");
+                const MAX_WIDTH = 1000;
+                const MAX_HEIGHT = 1400;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > MAX_WIDTH) {
+                        height *= MAX_WIDTH / width;
+                        width = MAX_WIDTH;
+                    }
+                } else {
+                    if (height > MAX_HEIGHT) {
+                        width *= MAX_HEIGHT / height;
+                        height = MAX_HEIGHT;
+                    }
+                }
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext("2d");
+                ctx?.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(new File([blob], file.name, { type: "image/jpeg", lastModified: Date.now() }));
+                    } else {
+                        reject(new Error("Fallo de compresión."));
+                    }
+                }, "image/jpeg", 0.7);
+            };
+            img.onerror = (error) => reject(error);
+        };
+        reader.onerror = (error) => reject(error);
+    });
+};
+
+const getTodayFormatted = () => {
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, "0");
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const yyyy = today.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+};
+
+// Date conversions for HTML5 date input <-> DD/MM/YYYY
+const toIsoDate = (dStr: string) => {
+    if (!dStr) return "";
+    const parts = dStr.split("/");
+    if (parts.length === 3) {
+        return `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+    }
+    return dStr;
+};
+
+const fromIsoDate = (isoStr: string) => {
+    if (!isoStr) return getTodayFormatted();
+    const parts = isoStr.split("-");
+    if (parts.length === 3) {
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return isoStr;
+};
+
+export default function ValidationModal({ items, initialType = "Egreso", onClose, onSuccess }: ValidationModalProps) {
+    const defaultType = initialType || "Egreso";
+    const initialItems = items && items.length > 0
+        ? items.map(item => ({
+            Fecha: item.Fecha || getTodayFormatted(),
+            Tipo: (item.Tipo as TrxType) || defaultType,
+            Categoría: item.Categoría || "",
+            Subcategoría: item.Subcategoría || "",
+            Monto: item.Monto !== undefined && item.Monto !== null ? String(item.Monto) : "",
+            Comentario: item.Comentario || "",
+            isConfirmed: true
+        }))
+        : [{
+            Fecha: getTodayFormatted(),
+            Tipo: defaultType,
+            Categoría: "",
+            Subcategoría: "",
+            Monto: "",
+            Comentario: "",
+            isConfirmed: true
+        }];
+
+    const [editableItems, setEditableItems] = useState(initialItems);
+    const [currentIndex, setCurrentIndex] = useState(0);
     const [isSaving, setIsSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+    // Currency mode: ARS or USD with MEP conversion
+    const [currency, setCurrency] = useState<"ARS" | "USD">("ARS");
+    const [mepRate, setMepRate] = useState<number | null>(null);
+
+    // Investment operation action: Compra (salida de caja) vs Venta (entrada de caja)
+    const [invOperation, setInvOperation] = useState<"Compra" | "Venta">("Compra");
 
     // Instalment mode state
     const [isInstalmentMode, setIsInstalmentMode] = useState(false);
     const [instalmentConcept, setInstalmentConcept] = useState("");
     const [instalmentsCount, setInstalmentsCount] = useState("1");
     const [startMonth, setStartMonth] = useState("");
-    const [tarjetas, setTarjetas] = useState<{ id: string, nombre: string }[]>([]);
+    const [tarjetas, setTarjetas] = useState<{ id: string; nombre: string }[]>([]);
     const [selectedTarjeta, setSelectedTarjeta] = useState("");
 
-    // Initialize start month
+    // AI & Scanning state
+    const [isProcessingAI, setIsProcessingAI] = useState(false);
+    const [showAiPrompt, setShowAiPrompt] = useState(false);
+    const [aiTextPrompt, setAiTextPrompt] = useState("");
+    const [isDragging, setIsDragging] = useState(false);
+
+    const [dynamicSavingsGoals, setDynamicSavingsGoals] = useState<string[]>([]);
+    const [dynamicCategories, setDynamicCategories] = useState<CategoryItem[]>([]);
+
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Fetch dynamic categories
+    useEffect(() => {
+        const loadCategories = () => {
+            fetch("/api/categories")
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (d && Array.isArray(d.data)) {
+                        setDynamicCategories(d.data);
+                    }
+                })
+                .catch(() => {});
+        };
+
+        loadCategories();
+        window.addEventListener("categories_updated", loadCategories);
+        return () => window.removeEventListener("categories_updated", loadCategories);
+    }, []);
+
+    // Fetch Dolar MEP rate on mount
+    useEffect(() => {
+        fetch("/api/dolar")
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                if (d && (d.mep || d.bolsa || d.ccl)) {
+                    setMepRate(d.mep || d.bolsa || d.ccl);
+                }
+            })
+            .catch(() => {
+                // Fallback default
+                setMepRate(1300);
+            });
+
+        fetch("/api/savings/goals")
+            .then(r => r.ok ? r.json() : null)
+            .then(d => {
+                if (d && Array.isArray(d.goals)) {
+                    setDynamicSavingsGoals(d.goals.map((g: any) => g.name));
+                }
+            })
+            .catch(() => {});
+    }, []);
+
+    // Close on Escape & Lock body scroll
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && !isSaving && !isProcessingAI) {
+                onClose();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        document.body.style.overflow = "hidden";
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown);
+            document.body.style.overflow = "";
+        };
+    }, [onClose, isSaving, isProcessingAI]);
+
+    // Initialize start month and tarjetas
     useEffect(() => {
         const date = new Date();
         date.setMonth(date.getMonth() + 1);
-        const mm = (date.getMonth() + 1).toString().padStart(2, '0');
+        const mm = (date.getMonth() + 1).toString().padStart(2, "0");
         const yyyy = date.getFullYear();
         setStartMonth(`${mm}/${yyyy}`);
 
-        fetch("/api/tarjetas").then(r => r.json()).then(d => {
-            if (d.data) {
-                setTarjetas(d.data);
-            }
-        }).catch(e => console.error(e));
+        fetch("/api/tarjetas")
+            .then((r) => r.json())
+            .then((d) => {
+                if (d.data) {
+                    setTarjetas(d.data);
+                }
+            })
+            .catch((e) => console.error(e));
     }, []);
 
-    const allConfirmed = editableItems.every((i) => i.isConfirmed);
-    const someConfirmed = editableItems.some((i) => i.isConfirmed);
+    // Current item being edited
+    const currentItem = editableItems[currentIndex] || editableItems[0];
 
-    const handleToggleConfirm = (index: number) => {
+    const handleFieldChange = (field: keyof ExtractedItem, value: string) => {
         setEditableItems((prev) =>
-            prev.map((item, i) =>
-                i === index ? { ...item, isConfirmed: !item.isConfirmed } : item
-            )
+            prev.map((item, i) => (i === currentIndex ? { ...item, [field]: value } : item))
         );
     };
 
-    const handleToggleAll = () => {
-        const atLeastOneUnconfirmed = editableItems.some((i) => !i.isConfirmed);
+    const handleTypeChange = (newType: TrxType) => {
         setEditableItems((prev) =>
-            prev.map((item) => ({ ...item, isConfirmed: atLeastOneUnconfirmed }))
+            prev.map((item, i) => {
+                if (i === currentIndex) {
+                    return {
+                        ...item,
+                        Tipo: newType,
+                        Categoría: "",
+                        Subcategoría: ""
+                    };
+                }
+                return item;
+            })
         );
     };
 
-    const handleFieldChange = (index: number, field: keyof ExtractedItem, value: string) => {
-        setEditableItems((prev) =>
-            prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
-        );
-    };
+    // Process AI OCR or text directly in the modal
+    const processWithAI = async (fileToProcess?: File, textToProcess?: string) => {
+        if (!fileToProcess && !textToProcess) return;
+        setIsProcessingAI(true);
+        setErrorMsg(null);
 
-    // Defensa: Parseo para formato de Gemini/input type=number
-    const parseAmount = (raw: string | number) => {
-        if (typeof raw === "number") return raw;
-        const cleanStr = String(raw).replace(/[^\d.,-]/g, '');
-
-        // Si tiene una coma, es indudable que viene en notación española (ej: 15.000,50 o 15000,50)
-        if (cleanStr.includes(',')) {
-            const standardized = cleanStr.replace(/\./g, '').replace(',', '.');
-            const parsed = parseFloat(standardized);
-            return isNaN(parsed) ? 0 : parsed;
-        }
-
-        // Si no hay comas, el punto (si lo hay) probablemente sea un separador decimal nativo ("15000.50"),
-        // lo cual es lo que genera el <input type="number"> internamente.
-        // (Alucinación edge case: Si hay múltiples puntos "1.500.000", los removemos)
-        if ((cleanStr.match(/\./g) || []).length > 1) {
-            return parseFloat(cleanStr.replace(/\./g, '')) || 0;
-        }
-
-        const parsed = parseFloat(cleanStr);
-        return isNaN(parsed) ? 0 : parsed;
-    };
-
-    const calculateGlobalTotal = () => {
-        return editableItems.reduce((acc, curr) => acc + parseAmount(curr.Monto), 0).toFixed(2);
-    };
-
-    const calculateConfirmedTotal = () => {
-        return editableItems.filter(i => i.isConfirmed).reduce((acc, curr) => acc + parseAmount(curr.Monto), 0).toFixed(2);
-    };
-
-    const handleEnableInstalmentMode = () => {
-        const confirmed = editableItems.filter(i => i.isConfirmed);
-        if (confirmed.length === 0) return;
-
-        let initialConcept = "Varias compras";
-        if (confirmed.length === 1) {
-            initialConcept = confirmed[0].Comentario || confirmed[0].Subcategoría || "Compra";
-        }
-        setInstalmentConcept(initialConcept);
-        setIsInstalmentMode(true);
-    };
-
-    const handleSave = async (withInstalment = false) => {
-        if (!someConfirmed) return;
-        setIsSaving(true);
         try {
-            let cuotaId = "";
+            const formData = new FormData();
+            if (textToProcess) formData.append("text", textToProcess);
 
-            // 1. Si eligió pago en cuotas, creamos PRIMERO la cuota para obtener su ID
-            if (withInstalment) {
-                const totalAmountStr = calculateConfirmedTotal();
-                const totalAmount = parseFloat(totalAmountStr);
+            if (fileToProcess) {
+                let finalFile = fileToProcess;
+                if (fileToProcess.type.startsWith("image/")) {
+                    finalFile = await compressImage(fileToProcess);
+                }
+                formData.append("file", finalFile);
+            }
+
+            const res = await fetch("/api/process", {
+                method: "POST",
+                body: formData,
+            });
+
+            if (!res.ok) {
+                if (res.status === 413) throw new Error("El archivo es demasiado pesado (Límite 5MB).");
+                throw new Error("Error en el procesamiento con IA.");
+            }
+
+            const data = await res.json();
+            if (data.items && data.items.length > 0) {
+                const newItems = data.items.map((it: ExtractedItem) => ({
+                    Fecha: it.Fecha || getTodayFormatted(),
+                    Tipo: (it.Tipo as TrxType) || "Egreso",
+                    Categoría: it.Categoría || "",
+                    Subcategoría: it.Subcategoría || "",
+                    Monto: it.Monto !== undefined && it.Monto !== null ? String(it.Monto) : "",
+                    Comentario: it.Comentario || "",
+                    isConfirmed: true
+                }));
+                setEditableItems(newItems);
+                setCurrentIndex(0);
+                setShowAiPrompt(false);
+                setAiTextPrompt("");
+            } else {
+                throw new Error("No se pudieron extraer datos del comprobante.");
+            }
+        } catch (err: unknown) {
+            setErrorMsg(err instanceof Error ? err.message : "Hubo un error al procesar el comprobante.");
+            console.error(err);
+        } finally {
+            setIsProcessingAI(false);
+        }
+    };
+
+    // Multi-item management
+    const handleAddNewItem = () => {
+        const newItem = {
+            Fecha: getTodayFormatted(),
+            Tipo: currentItem?.Tipo || "Egreso",
+            Categoría: "",
+            Subcategoría: "",
+            Monto: "",
+            Comentario: "",
+            isConfirmed: true
+        };
+        setEditableItems((prev) => [...prev, newItem]);
+        setCurrentIndex(editableItems.length);
+    };
+
+    const handleRemoveCurrentItem = () => {
+        if (editableItems.length <= 1) return;
+        setEditableItems((prev) => prev.filter((_, i) => i !== currentIndex));
+        setCurrentIndex((prev) => Math.max(0, prev - 1));
+    };
+
+    // Calculate totals in ARS
+    const calculateTotal = () => {
+        const rawTotal = editableItems.reduce((acc, curr) => acc + parseSafeAmount(curr.Monto), 0);
+        if (currency === "USD" && mepRate && mepRate > 0) {
+            return (rawTotal * mepRate).toFixed(2);
+        }
+        return rawTotal.toFixed(2);
+    };
+
+    const isFormValid = () => {
+        if (editableItems.length === 0) return false;
+        const amt = parseSafeAmount(currentItem.Monto);
+        if (amt === 0 || isNaN(amt)) return false;
+        if ((currentItem.Tipo === "Ingreso" || currentItem.Tipo === "Inversión") && amt < 0) return false;
+        if (isInstalmentMode) {
+            const tot = parseFloat(calculateTotal());
+            const count = parseInt(instalmentsCount, 10);
+            if (isNaN(tot) || tot <= 0 || isNaN(count) || count < 1) return false;
+        }
+        return true;
+    };
+
+    const handleSave = async () => {
+        if (!isFormValid() || isSaving) return;
+        setIsSaving(true);
+        setErrorMsg(null);
+
+        let cuotaId = "";
+
+        try {
+            // 1. Si eligió cuotas (sólo para Egreso)
+            if (isInstalmentMode && currentItem.Tipo === "Egreso") {
+                const totalAmount = parseFloat(calculateTotal());
+                if (totalAmount <= 0) {
+                    throw new Error("El monto total para pagar en cuotas debe ser mayor a cero.");
+                }
+                const count = parseInt(instalmentsCount, 10) || 1;
+                if (count < 1) {
+                    throw new Error("La cantidad de cuotas debe ser al menos 1.");
+                }
 
                 const today = new Date();
-                const dd = today.getDate().toString().padStart(2, '0');
-                const mm = (today.getMonth() + 1).toString().padStart(2, '0');
+                const dd = today.getDate().toString().padStart(2, "0");
+                const mm = (today.getMonth() + 1).toString().padStart(2, "0");
                 const yyyy = today.getFullYear();
+
+                const concept = instalmentConcept.trim() || currentItem.Comentario || currentItem.Subcategoría || "Compra en cuotas";
 
                 const cuotaRes = await fetch("/api/cuotas", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         date: `${dd}/${mm}/${yyyy}`,
-                        concept: instalmentConcept,
+                        concept: concept,
                         totalAmount: totalAmount,
-                        instalmentsCount: parseInt(instalmentsCount),
+                        instalmentsCount: count,
                         startMonth,
                         tarjeta: selectedTarjeta
                     })
                 });
 
-                if (!cuotaRes.ok) throw new Error("Fallo al crear la estructura de Cuotas.");
+                const cuotaData = await cuotaRes.json().catch(() => ({}));
+                if (!cuotaRes.ok || !cuotaData.id) {
+                    throw new Error(cuotaData.error || "Fallo al crear la estructura de Cuotas.");
+                }
 
-                const cuotaData = await cuotaRes.json();
                 cuotaId = cuotaData.id;
             }
 
-            // 2. Formato para enviar a Google Sheets: [Fecha, Tipo, Categoría, Subcategoría, Monto, Comentario, ID Cuota]
-            const rowsToInsert = editableItems.filter(i => i.isConfirmed).map((item) => [
-                item.Fecha,
-                item.Tipo,
-                item.Categoría,
-                item.Subcategoría,
-                parseAmount(item.Monto),
-                item.Comentario,
-                cuotaId // Se agregará en la columna H (7mo elemento de los datos devueltos listos para sheets, 8vo contando ID original en el backend)
-            ]);
+            // 2. Formatear para backend en ARS: [Fecha, Tipo, Categoría, Subcategoría, MontoARS, Comentario, ID Cuota]
+            const rowsToInsert = editableItems
+                .filter((item) => {
+                    const val = parseSafeAmount(item.Monto);
+                    if (val === 0 || isNaN(val)) return false;
+                    if ((item.Tipo === "Ingreso" || item.Tipo === "Inversión") && val < 0) return false;
+                    return true;
+                })
+                .map((item) => {
+                    const rawVal = parseSafeAmount(item.Monto);
+                    let finalVal = rawVal;
+                    let commentWithFx = item.Comentario;
+
+                    // Si fue ingresado en USD, convertir a ARS al Dólar MEP
+                    if (currency === "USD" && mepRate && mepRate > 0) {
+                        finalVal = Math.round(rawVal * mepRate * 100) / 100;
+                        commentWithFx = item.Comentario 
+                            ? `${item.Comentario} (USD ${rawVal} @ MEP $${mepRate})`
+                            : `USD ${rawVal} (MEP $${mepRate})`;
+                    }
+
+                    // Si es inversión y es venta, añadir tag si no está
+                    if (item.Tipo === "Inversión" && invOperation === "Venta") {
+                        commentWithFx = commentWithFx ? `${commentWithFx} [Venta/Rescate]` : `[Venta/Rescate]`;
+                    }
+
+                    return [
+                        item.Fecha,
+                        item.Tipo,
+                        item.Categoría || (item.Tipo === "Inversión" ? "Ahorro" : "Otros"),
+                        item.Subcategoría || (item.Tipo === "Inversión" ? "Emergencia" : "Otros"),
+                        finalVal,
+                        commentWithFx,
+                        cuotaId
+                    ];
+                });
+
+            if (rowsToInsert.length === 0) {
+                throw new Error("Por favor ingresa un monto válido distinto de cero.");
+            }
 
             const res = await fetch("/api/transactions", {
                 method: "POST",
@@ -159,299 +428,567 @@ export default function ValidationModal({ items, onClose, onSuccess }: Validatio
                 body: JSON.stringify({ items: rowsToInsert }),
             });
 
-            if (!res.ok) throw new Error("Fallo al guardar en Sheets (Transacciones)");
+            const resData = await res.json().catch(() => ({}));
+            if (!res.ok || !resData.success) {
+                throw new Error(resData.error || "Fallo al guardar los movimientos en la base de datos.");
+            }
+
+            if (resData.sheetsSynced === false) {
+                window.dispatchEvent(new CustomEvent("sheets_sync_failed", {
+                    detail: {
+                        type: "transactions",
+                        items: resData.rawItemsForSheets || rowsToInsert,
+                        error: resData.sheetsError
+                    }
+                }));
+            }
 
             onSuccess();
             window.dispatchEvent(new Event("transaction_added"));
         } catch (err: unknown) {
-            setErrorMsg(err instanceof Error ? err.message : "Hubo un error al guardar los datos.");
+            // Rollback compensatorio: Si la cuota se creó pero la transacción falló, eliminar la cuota huérfana
+            if (cuotaId) {
+                try {
+                    await fetch(`/api/cuotas/${cuotaId}`, { method: "DELETE" });
+                    console.info(`Rollback ejecutado con éxito: cuota ${cuotaId} eliminada tras falla en transacciones.`);
+                } catch (rollbackErr) {
+                    console.error("Error intentando revertir cuota huérfana:", rollbackErr);
+                }
+            }
+
+            setErrorMsg(err instanceof Error ? err.message : "Hubo un error al guardar los datos. Verificá tu conexión e intentá de nuevo.");
             console.error(err);
         } finally {
             setIsSaving(false);
         }
     };
 
+    // Dynamic Category and subcategory options
+    const { availableCategories, availableSubcategories } = useMemo(() => {
+        if (currentItem.Tipo === "Ahorro") {
+            return {
+                availableCategories: ["Aporte", "Retiro"],
+                availableSubcategories: dynamicSavingsGoals.length > 0
+                    ? dynamicSavingsGoals
+                    : ["Fondo de Emergencia", "General", "Viaje", "Nueva PC", "Auto", "Otros ahorros"]
+            };
+        }
+
+        if (currentItem.Tipo === "Inversión") {
+            return {
+                availableCategories: ["Activos Financieros"],
+                availableSubcategories: ["Acciones", "Cedears", "Bonos", "ETFs", "Cripto", "Otros activos"]
+            };
+        }
+
+        // Egreso or Ingreso from dynamicCategories
+        const typeCats = dynamicCategories.filter(c => c.type === currentItem.Tipo);
+        if (typeCats.length > 0) {
+            const catNames = typeCats.map(c => c.name);
+            const selectedCatObj = typeCats.find(c => c.name === currentItem.Categoría);
+            const subcats = selectedCatObj ? selectedCatObj.subcategories : [];
+            return {
+                availableCategories: catNames,
+                availableSubcategories: subcats
+            };
+        }
+
+        // Fallback to static CATEGORIES if dynamic categories not yet loaded
+        const fallbackMap = CATEGORIES[currentItem.Tipo as keyof typeof CATEGORIES] || {};
+        const fallbackCatNames = Object.keys(fallbackMap);
+        const fallbackSubcats = (fallbackMap as Record<string, string[]>)[currentItem.Categoría] || [];
+        return {
+            availableCategories: fallbackCatNames,
+            availableSubcategories: fallbackSubcats
+        };
+    }, [currentItem.Tipo, currentItem.Categoría, dynamicCategories, dynamicSavingsGoals]);
+
+    // Drag and Drop listeners
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            const file = files[0];
+            if (file.type.startsWith("image/") || file.type === "application/pdf") {
+                void processWithAI(file);
+            }
+        }
+    };
+
     return (
-        <div className={styles.overlay}>
-            <div className={styles.modal}>
+        <div
+            className={styles.overlay}
+            onClick={(e) => {
+                if (e.target === e.currentTarget && !isSaving && !isProcessingAI) {
+                    onClose();
+                }
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            <div className={`${styles.modal} ${isDragging ? styles.dragActive : ""}`} role="dialog" aria-modal="true">
+                {/* Header Bar matching reference image: Close button left, Guardar button right */}
                 <div className={styles.header}>
-                    <h2 className={styles.title}>Revisar y Confirmar</h2>
-                    <button className={styles.closeBtn} onClick={onClose}>&times;</button>
+                    <button
+                        type="button"
+                        className={styles.closeBtn}
+                        onClick={onClose}
+                        disabled={isSaving || isProcessingAI}
+                        aria-label="Cerrar modal"
+                    >
+                        ✕
+                    </button>
+
+                    <button
+                        type="button"
+                        className={styles.headerSaveBtn}
+                        onClick={handleSave}
+                        disabled={!isFormValid() || isSaving || isProcessingAI}
+                        aria-label="Guardar movimiento"
+                    >
+                        {isSaving ? "Guardando..." : "Guardar"}
+                    </button>
                 </div>
 
                 <div className={styles.scrollArea}>
-                    {isInstalmentMode ? (
-                        <div className={styles.instalmentSetup}>
-                            <h3 style={{ marginBottom: 16 }}>Configurar Cuotas</h3>
-                            <p style={{ marginBottom: 24, color: 'var(--text-muted)' }}>
-                                El monto total <strong>${calculateConfirmedTotal()}</strong> se registrará hoy como devengado, y se proyectará en pagos futuros en tu dashboard de Cuotas.
-                            </p>
+                    {/* Multi-item banner if AI OCR extracted multiple items */}
+                    {editableItems.length > 1 && (
+                        <div className={styles.multiItemNav}>
+                            <span className={styles.multiItemTitle}>
+                                Ítem {currentIndex + 1} de {editableItems.length} (Total: ${calculateTotal()})
+                            </span>
+                            <div className={styles.multiItemActions}>
+                                <button
+                                    type="button"
+                                    className={styles.navArrowBtn}
+                                    onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
+                                    disabled={currentIndex === 0}
+                                    title="Ítem anterior"
+                                >
+                                    ◀
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles.navArrowBtn}
+                                    onClick={() => setCurrentIndex((prev) => Math.min(editableItems.length - 1, prev + 1))}
+                                    disabled={currentIndex === editableItems.length - 1}
+                                    title="Siguiente ítem"
+                                >
+                                    ▶
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles.navArrowBtn}
+                                    onClick={handleAddNewItem}
+                                    title="Agregar otro ítem"
+                                >
+                                    ＋
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles.navArrowBtn}
+                                    style={{ color: "var(--danger-color)" }}
+                                    onClick={handleRemoveCurrentItem}
+                                    title="Eliminar este ítem"
+                                >
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    )}
 
-                            <div className={styles.formGrid}>
+                    {/* Segmented Toggle: Gasto / Ingreso / Ahorro / Inversión */}
+                    <div className={styles.typeToggleWrapper}>
+                        <div className={styles.segmentedControl}>
+                            <button
+                                type="button"
+                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Egreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveGasto}` : ""}`}
+                                onClick={() => handleTypeChange("Egreso")}
+                            >
+                                <span>Gasto</span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Ingreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveIngreso}` : ""}`}
+                                onClick={() => handleTypeChange("Ingreso")}
+                            >
+                                <span>Ingreso</span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Ahorro" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveAhorro}` : ""}`}
+                                onClick={() => handleTypeChange("Ahorro")}
+                            >
+                                <span>Ahorro</span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Inversión" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveInversion}` : ""}`}
+                                onClick={() => handleTypeChange("Inversión")}
+                            >
+                                <span>Inversión</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Operación para Inversión: Compra / Aporte vs Venta / Rescate */}
+                    {currentItem.Tipo === "Inversión" && (
+                        <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
+                            <button
+                                type="button"
+                                onClick={() => setInvOperation("Compra")}
+                                style={{
+                                    flex: 1,
+                                    padding: "8px 12px",
+                                    borderRadius: "10px",
+                                    border: invOperation === "Compra" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
+                                    background: invOperation === "Compra" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
+                                    color: invOperation === "Compra" ? "var(--text-main)" : "var(--text-muted)",
+                                    fontWeight: invOperation === "Compra" ? 700 : 500,
+                                    fontSize: "0.85rem",
+                                    cursor: "pointer",
+                                    transition: "all 0.2s ease"
+                                }}
+                            >
+                                🟢 Compra / Aporte (Salida de caja)
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setInvOperation("Venta")}
+                                style={{
+                                    flex: 1,
+                                    padding: "8px 12px",
+                                    borderRadius: "10px",
+                                    border: invOperation === "Venta" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
+                                    background: invOperation === "Venta" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
+                                    color: invOperation === "Venta" ? "var(--text-main)" : "var(--text-muted)",
+                                    fontWeight: invOperation === "Venta" ? 700 : 500,
+                                    fontSize: "0.85rem",
+                                    cursor: "pointer",
+                                    transition: "all 0.2s ease"
+                                }}
+                            >
+                                🔴 Venta / Rescate (Entrada a caja)
+                            </button>
+                        </div>
+                    )}
+
+                    {/* MONTO Section con Selector ARS / USD (MEP) */}
+                    <div className={styles.sectionBlock}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <label className={styles.sectionLabel} htmlFor="trx-amount">
+                                Monto
+                            </label>
+                            {currency === "USD" && mepRate && (
+                                <span style={{ fontSize: "0.75rem", color: "#8b5cf6", fontWeight: 600 }}>
+                                    Dólar MEP: ${mepRate} · Equivalente: {fmt(parseSafeAmount(currentItem.Monto) * mepRate)}
+                                </span>
+                            )}
+                        </div>
+                        <div className={styles.amountCard}>
+                            <div 
+                                className={styles.currencyBadge}
+                                onClick={() => setCurrency(currency === "ARS" ? "USD" : "ARS")}
+                                title="Cambiar divisa ARS / USD (conversión automática al Dólar MEP)"
+                                style={{ cursor: "pointer", userSelect: "none" }}
+                            >
+                                <span>{currency}</span>
+                                <span className={styles.currencyArrow}>▾</span>
+                            </div>
+                            <div className={styles.amountDivider} />
+                            <div className={styles.amountInputWrapper}>
+                                <span className={styles.amountPrefix}>{currency === "USD" ? "u$s" : "$"}</span>
+                                <input
+                                    id="trx-amount"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="any"
+                                    min="0"
+                                    className={styles.amountInput}
+                                    placeholder="0,00"
+                                    value={currentItem.Monto}
+                                    onChange={(e) => handleFieldChange("Monto", e.target.value)}
+                                    autoFocus
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Grid of Fields: Categoría & Subcategoría, Nota & Fecha */}
+                    <div className={styles.formGrid}>
+                        {/* Categoría */}
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label} htmlFor="trx-category">
+                                Categoría
+                            </label>
+                            <select
+                                id="trx-category"
+                                className={styles.selectStyle}
+                                value={currentItem.Categoría}
+                                onChange={(e) => {
+                                    handleFieldChange("Categoría", e.target.value);
+                                    handleFieldChange("Subcategoría", "");
+                                }}
+                            >
+                                <option value="">Seleccionar</option>
+                                {availableCategories.map((cat) => (
+                                    <option key={cat} value={cat}>
+                                        {cat}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Subcategoría */}
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label} htmlFor="trx-subcategory">
+                                Subcategoría
+                            </label>
+                            <select
+                                id="trx-subcategory"
+                                className={styles.selectStyle}
+                                value={currentItem.Subcategoría}
+                                onChange={(e) => handleFieldChange("Subcategoría", e.target.value)}
+                                disabled={!currentItem.Categoría}
+                            >
+                                <option value="">
+                                    {currentItem.Categoría ? "Seleccionar" : "- Elige categoría -"}
+                                </option>
+                                {availableSubcategories.map((subCat) => (
+                                    <option key={subCat} value={subCat}>
+                                        {subCat}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        {/* Nota (Opcional) */}
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label} htmlFor="trx-comment">
+                                Nota (Opcional)
+                            </label>
+                            <input
+                                id="trx-comment"
+                                type="text"
+                                className={styles.inputStyle}
+                                placeholder='Ej: "Aporte a Fondo de Emergencia" o "10 AAPL"'
+                                value={currentItem.Comentario}
+                                onChange={(e) => handleFieldChange("Comentario", e.target.value)}
+                            />
+                        </div>
+
+                        {/* Fecha */}
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label} htmlFor="trx-date">
+                                Fecha
+                            </label>
+                            <div className={styles.dateWrapper}>
+                                <span className={styles.dateIcon}>📅</span>
+                                <input
+                                    id="trx-date"
+                                    type="date"
+                                    className={`${styles.inputStyle} ${styles.dateInput}`}
+                                    value={toIsoDate(currentItem.Fecha)}
+                                    onChange={(e) => handleFieldChange("Fecha", fromIsoDate(e.target.value))}
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Opciones Adicionales (sólo para Gastos o OCR) */}
+                    <div className={styles.optionsSection}>
+                        <div className={styles.optionsTitle}>
+                            <span>Opciones adicionales</span>
+                        </div>
+                        <div className={styles.optionsPills}>
+                            {/* Cuotas Pill (Sólo para Gastos) */}
+                            {currentItem.Tipo === "Egreso" && (
+                                <button
+                                    type="button"
+                                    className={`${styles.optionPill} ${isInstalmentMode ? styles.optionPillActive : ""}`}
+                                    onClick={() => {
+                                        const next = !isInstalmentMode;
+                                        setIsInstalmentMode(next);
+                                        if (next && !instalmentConcept) {
+                                            setInstalmentConcept(currentItem.Comentario || currentItem.Subcategoría || "Compra en cuotas");
+                                        }
+                                    }}
+                                >
+                                    <span>💳</span>
+                                    <span>{isInstalmentMode ? "Pagar en cuotas ✓" : "+ Pagar en cuotas"}</span>
+                                </button>
+                            )}
+
+                            {/* Scan Ticket Pill */}
+                            <label className={styles.optionPill} style={{ cursor: "pointer" }}>
+                                <span>📸</span>
+                                <span>{isProcessingAI ? "Escaneando..." : "Escanear comprobante"}</span>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*, application/pdf"
+                                    capture="environment"
+                                    className={styles.hiddenInput}
+                                    disabled={isProcessingAI}
+                                    onChange={(e) => {
+                                        if (e.target.files && e.target.files[0]) {
+                                            void processWithAI(e.target.files[0]);
+                                            e.target.value = "";
+                                        }
+                                    }}
+                                />
+                            </label>
+
+                            {/* Text AI prompt */}
+                            <button
+                                type="button"
+                                className={`${styles.optionPill} ${showAiPrompt ? styles.optionPillActive : ""}`}
+                                onClick={() => setShowAiPrompt(!showAiPrompt)}
+                            >
+                                <span>✨</span>
+                                <span>Autocompletar con IA</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Expandable AI Prompt Input */}
+                    {showAiPrompt && (
+                        <div className={styles.cuotasCard}>
+                            <label className={styles.label}>Escribe lo que gastaste, ingresaste o invertiste</label>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                                <input
+                                    type="text"
+                                    className={styles.inputStyle}
+                                    placeholder='Ej: "Invertí 50000 en CEDEARs de Apple" o "Gasté 4500 en farmacia"'
+                                    value={aiTextPrompt}
+                                    onChange={(e) => setAiTextPrompt(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" && aiTextPrompt.trim()) {
+                                            e.preventDefault();
+                                            void processWithAI(undefined, aiTextPrompt);
+                                        }
+                                    }}
+                                />
+                                <button
+                                    type="button"
+                                    className={styles.saveBtn}
+                                    onClick={() => processWithAI(undefined, aiTextPrompt)}
+                                    disabled={isProcessingAI || !aiTextPrompt.trim()}
+                                >
+                                    {isProcessingAI ? "..." : "✨ Procesar"}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Expandable Cuotas Configuration */}
+                    {isInstalmentMode && currentItem.Tipo === "Egreso" && (
+                        <div className={styles.cuotasCard}>
+                            <div className={styles.cuotasDesc}>
+                                El monto total <strong>${calculateTotal()}</strong> se registrará hoy como devengado y se proyectará en pagos futuros en tu dashboard de Cuotas.
+                            </div>
+
+                            <div className={styles.cuotasGrid}>
                                 <div className={styles.inputGroup}>
                                     <label className={styles.label}>Concepto</label>
                                     <input
                                         type="text"
                                         className={styles.inputStyle}
                                         value={instalmentConcept}
-                                        onChange={e => setInstalmentConcept(e.target.value)}
+                                        onChange={(e) => setInstalmentConcept(e.target.value)}
+                                        placeholder="Ej: Zapatillas"
                                     />
                                 </div>
+
                                 <div className={styles.inputGroup}>
                                     <label className={styles.label}>Cantidad de Cuotas</label>
                                     <input
                                         type="number"
-                                        min="1" max="72"
+                                        min="1"
+                                        max="72"
                                         className={styles.inputStyle}
                                         value={instalmentsCount}
-                                        onChange={e => setInstalmentsCount(e.target.value)}
+                                        onChange={(e) => setInstalmentsCount(e.target.value)}
                                     />
                                 </div>
+
                                 <div className={styles.inputGroup}>
                                     <label className={styles.label}>Tarjeta (Opcional)</label>
                                     <select
-                                        className={styles.inputStyle}
+                                        className={styles.selectStyle}
                                         value={selectedTarjeta}
-                                        onChange={e => setSelectedTarjeta(e.target.value)}
+                                        onChange={(e) => setSelectedTarjeta(e.target.value)}
                                     >
                                         <option value="">- Ninguna / General -</option>
-                                        {tarjetas.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                                        {tarjetas.map((t) => (
+                                            <option key={t.id} value={t.nombre}>
+                                                {t.nombre}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
+
                                 <div className={styles.inputGroup}>
                                     <label className={styles.label}>Mes de Inicio (MM/YYYY)</label>
                                     <input
                                         type="text"
                                         className={styles.inputStyle}
                                         value={startMonth}
-                                        onChange={e => setStartMonth(e.target.value)}
-                                        pattern="(0[1-9]|1[0-2])\/20[0-9]{2}"
+                                        onChange={(e) => setStartMonth(e.target.value)}
+                                        placeholder="MM/YYYY"
                                     />
                                 </div>
                             </div>
                         </div>
-                    ) : editableItems.length === 0 ? (
-                        <p className={styles.emptyMsg}>No se detectaron ítems válidos.</p>
-                    ) : (
-                        <>
-                            <div className={styles.mobileSelectAll}>
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                                    <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>Seleccionar todos los movimientos</span>
-                                    <input
-                                        type="checkbox"
-                                        className={styles.checkbox}
-                                        style={{ width: 24, height: 24 }}
-                                        checked={allConfirmed && editableItems.length > 0}
-                                        onChange={handleToggleAll}
-                                    />
-                                </label>
-                            </div>
-                            <table className={styles.table}>
-                                <thead>
-                                <tr>
-                                    <th>Fecha</th>
-                                    <th>Tipo</th>
-                                    <th>Categoría</th>
-                                    <th>Subcategoría</th>
-                                    <th>Comentario</th>
-                                    <th>Monto</th>
-                                    <th style={{ textAlign: "center" }}>
-                                        <input
-                                            type="checkbox"
-                                            className={styles.checkbox}
-                                            checked={allConfirmed && editableItems.length > 0}
-                                            onChange={handleToggleAll}
-                                            title="Seleccionar todos"
-                                        />
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {editableItems.map((item, index) => {
-                                    const typeCategories = CATEGORIES[item.Tipo as "Egreso" | "Ingreso"];
-
-                                    // Defensa: Si la categoría no existe en nuestro molde maestro, se evita el crash
-                                    const subCats = (typeCategories && typeCategories[item.Categoría as keyof typeof typeCategories])
-                                        ? typeCategories[item.Categoría as keyof typeof typeCategories]
-                                        : [];
-
-                                    return (
-                                        <tr key={index} className={item.isConfirmed ? styles.rowConfirmed : ""}>
-                                            <td>
-                                                <input
-                                                    type="text"
-                                                    className={styles.inputStyle}
-                                                    value={item.Fecha}
-                                                    onChange={(e) => handleFieldChange(index, "Fecha", e.target.value)}
-                                                    disabled={item.isConfirmed}
-                                                />
-                                            </td>
-                                            <td>
-                                                <select
-                                                    className={styles.selectStyle}
-                                                    value={item.Tipo}
-                                                    onChange={(e) => {
-                                                        handleFieldChange(index, "Tipo", e.target.value);
-                                                        handleFieldChange(index, "Categoría", ""); // reset child
-                                                        handleFieldChange(index, "Subcategoría", ""); // reset child
-                                                    }}
-                                                    disabled={item.isConfirmed}
-                                                >
-                                                    <option value="">-</option>
-                                                    <option value="Egreso">Egreso</option>
-                                                    <option value="Ingreso">Ingreso</option>
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <select
-                                                    className={styles.selectStyle}
-                                                    value={item.Categoría}
-                                                    onChange={(e) => {
-                                                        handleFieldChange(index, "Categoría", e.target.value);
-                                                        handleFieldChange(index, "Subcategoría", ""); // reset child
-                                                    }}
-                                                    disabled={item.isConfirmed}
-                                                >
-                                                    <option value="">-</option>
-                                                    {item.Tipo && Object.keys(CATEGORIES[item.Tipo as "Egreso" | "Ingreso"] || {}).map(cat => (
-                                                        <option key={cat} value={cat}>{cat}</option>
-                                                    ))}
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <select
-                                                    className={styles.selectStyle}
-                                                    value={item.Subcategoría}
-                                                    onChange={(e) => handleFieldChange(index, "Subcategoría", e.target.value)}
-                                                    disabled={item.isConfirmed}
-                                                >
-                                                    <option value="">-</option>
-                                                    {subCats.map((sc: string) => (
-                                                        <option key={sc} value={sc}>{sc}</option>
-                                                    ))}
-                                                </select>
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="text"
-                                                    className={styles.inputStyle}
-                                                    value={item.Comentario}
-                                                    onChange={(e) => handleFieldChange(index, "Comentario", e.target.value)}
-                                                    disabled={item.isConfirmed}
-                                                />
-                                            </td>
-                                            <td>
-                                                <input
-                                                    type="number"
-                                                    className={`${styles.inputStyle} ${styles.inputNum}`}
-                                                    value={item.Monto}
-                                                    min="0"
-                                                    step="0.01"
-                                                    onChange={(e) => handleFieldChange(index, "Monto", e.target.value)}
-                                                    disabled={item.isConfirmed}
-                                                />
-                                            </td>
-                                            <td style={{ textAlign: "center" }}>
-                                                <input
-                                                    type="checkbox"
-                                                    className={styles.checkbox}
-                                                    checked={item.isConfirmed}
-                                                    onChange={() => handleToggleConfirm(index)}
-                                                />
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                        </>
                     )}
                 </div>
 
-                <div className={styles.footer}>
-                    <div className={styles.totalsGrid}>
-                        <span className={styles.totalsLabel} style={{ color: 'var(--text-muted)' }}>Total:</span>
-                        <span className={styles.totalsValue} style={{ color: 'var(--text-muted)' }}>${calculateGlobalTotal()}</span>
-
-                        <span className={styles.totalsLabel}>Total Confirmado:</span>
-                        <span className={styles.totalsValue} style={{ color: 'var(--success-color)' }}>${calculateConfirmedTotal()}</span>
+                {/* Error Banner */}
+                {errorMsg && (
+                    <div
+                        style={{
+                            background: "rgba(239, 68, 68, 0.15)",
+                            borderTop: "1px solid var(--danger-color)",
+                            padding: "12px 20px",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            fontSize: "0.85rem",
+                            color: "var(--text-main)"
+                        }}
+                    >
+                        <span>⚠️ {errorMsg}</span>
+                        <button
+                            type="button"
+                            onClick={() => setErrorMsg(null)}
+                            style={{
+                                background: "none",
+                                border: "none",
+                                color: "var(--text-muted)",
+                                cursor: "pointer",
+                                fontSize: "1rem"
+                            }}
+                        >
+                            ✕
+                        </button>
                     </div>
-                    <div className={styles.actions}>
-                        {isInstalmentMode ? (
-                            <>
-                                <button
-                                    className={styles.cancelBtn}
-                                    onClick={() => setIsInstalmentMode(false)}
-                                    disabled={isSaving}
-                                >
-                                    Volver
-                                </button>
-                                <button
-                                    className={styles.saveBtn}
-                                    disabled={isSaving || !instalmentConcept || !instalmentsCount || !startMonth}
-                                    onClick={() => handleSave(true)}
-                                >
-                                    {isSaving ? "Guardando..." : "Confirmar Compra + Cuotas"}
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <button
-                                    className={styles.cancelBtn}
-                                    onClick={onClose}
-                                    disabled={isSaving}
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    className={someConfirmed ? styles.instalmentBtn : styles.saveBtnDisabled}
-                                    disabled={!someConfirmed || isSaving || editableItems.length === 0}
-                                    onClick={handleEnableInstalmentMode}
-                                    style={{ backgroundColor: 'var(--accent-color)', color: 'white' }}
-                                >
-                                    Pagar en Cuotas
-                                </button>
-                                <button
-                                    className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
-                                    disabled={!someConfirmed || isSaving || editableItems.length === 0}
-                                    onClick={() => handleSave(false)}
-                                >
-                                    {isSaving ? "Guardando..." : "Confirmar"}
-                                </button>
-                            </>
-                        )}
-                    </div>
-                </div>
+                )}
             </div>
-
-            {errorMsg && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-                    background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex',
-                    alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
-                }}>
-                    <div style={{
-                        background: 'var(--bg-color)', padding: 24, borderRadius: 16,
-                        width: '90%', maxWidth: 400, boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-                        border: '1px solid var(--glass-border)'
-                    }}>
-                        <h3 style={{ marginBottom: 12, fontSize: '1.2rem', color: 'var(--text-main)' }}>Vesta dice</h3>
-                        <p style={{ color: 'var(--text-muted)', marginBottom: 24 }}>{errorMsg}</p>
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                            <button
-                                onClick={() => setErrorMsg(null)}
-                                style={{
-                                    background: 'transparent', color: 'var(--accent-color)',
-                                    border: '1px solid var(--accent-color)', padding: '8px 24px',
-                                    borderRadius: '8px', fontWeight: 600, cursor: 'pointer'
-                                }}
-                            >
-                                Aceptar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

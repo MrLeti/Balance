@@ -1,38 +1,42 @@
 // ─────────────────────────────────────────────────────────
 // Inversiones — Types & Pure Calculation Functions
+// Multi-currency (ARS / USD) & Split Corporate Action Support
 // ─────────────────────────────────────────────────────────
 
 /* ─── Types ─── */
 
-export type AssetType = "Acciones" | "Cripto" | "ETFs" | "Cedears";
-export type TransactionType = "Compra" | "Venta";
-export type Cartera = "Jubilaci\u00f3n" | "Crecimiento";
+export type AssetType = "Acciones" | "Cripto" | "ETFs" | "Cedears" | "Bonos";
+export type TransactionType = "Compra" | "Venta" | "Split";
+export type Cartera = "Jubilación" | "Crecimiento";
+export type Currency = "ARS" | "USD";
 
 export interface InvestmentTransaction {
     id: string;
     date: string;            // "DD/MM/YYYY"
     type: TransactionType;
-    asset: string;           // ticker: "AAPL", "BTC", "SPY", etc.
+    asset: string;           // ticker: "AAPL", "BTC", "SPY", "AL30", etc.
     assetType: AssetType;
-    quantity: number;
-    unitPrice: number;       // price per unit in ARS
-    commission: number;      // broker commission in ARS
-    cartera: Cartera;        // "Jubilaci\u00f3n" | "Crecimiento"
+    quantity: number;        // For Split: multiplier factor (e.g. 10 for 10:1 split)
+    unitPrice: number;       // price per unit in transaction currency (0 for Split)
+    commission: number;      // broker commission in transaction currency
+    cartera: Cartera;        // "Jubilación" | "Crecimiento"
     comment: string;
+    currency?: Currency;     // "ARS" | "USD" (defaults to "ARS")
+    fxRate?: number;         // Dollar exchange rate at date of transaction
 }
 
 export interface PortfolioHolding {
     asset: string;
     assetType: AssetType;
     totalQuantity: number;
-    averageCost: number;         // weighted average purchase price
-    totalInvested: number;       // total cost basis (avg * qty)
-    totalCommissions: number;    // sum of buy commissions
-    currentPrice: number;        // live or user-entered price
-    currentValue: number;        // currentPrice × totalQuantity
-    pnl: number;                 // unrealized P&L (currentValue - totalInvested)
+    averageCost: number;         // weighted average purchase price in displayCurrency
+    totalInvested: number;       // total cost basis in displayCurrency
+    totalCommissions: number;    // sum of buy commissions in displayCurrency
+    currentPrice: number;        // live or user-entered price in displayCurrency
+    currentValue: number;        // currentPrice × totalQuantity in displayCurrency
+    pnl: number;                 // unrealized P&L in displayCurrency
     pnlPercent: number;          // pnl / totalInvested × 100
-    realizedPnl: number;         // sum of realized gains from sales
+    realizedPnl: number;         // sum of realized gains from sales in displayCurrency
 }
 
 export interface PortfolioSummary {
@@ -41,8 +45,10 @@ export interface PortfolioSummary {
     totalPnl: number;
     totalPnlPercent: number;
     totalRealizedPnl: number;
+    twr: number;
     holdingsCount: number;
     diversification: { label: string; value: number; color: string }[];
+    currencyDiversification: { label: string; value: number; color: string }[];
 }
 
 export interface PortfolioHistoryPoint {
@@ -50,6 +56,7 @@ export interface PortfolioHistoryPoint {
     invested: number;   // accumulated capital invested up to this date
     value: number;      // estimated value at this point (uses last known prices)
     valueByCartera: Record<string, number>;
+    twrPercent?: number; // cumulative Time-Weighted Return % up to this date
 }
 
 /* ─── Constants ─── */
@@ -59,31 +66,18 @@ export const ASSET_TYPE_COLORS: Record<AssetType, string> = {
     Cripto: "#f59e0b",
     ETFs: "#8b5cf6",
     Cedears: "#22c55e",
+    Bonos: "#ec4899",
 };
 
-export const ASSET_TYPES: AssetType[] = ["Acciones", "Cripto", "ETFs", "Cedears"];
-export const CARTERAS: Cartera[] = ["Jubilaci\u00f3n", "Crecimiento"];
+export const ASSET_TYPES: AssetType[] = ["Acciones", "Cripto", "ETFs", "Cedears", "Bonos"];
+export const CARTERAS: Cartera[] = ["Jubilación", "Crecimiento"];
 
 /* ─── Parsing (Google Sheets row ↔ InvestmentTransaction) ─── */
 
-/**
- * Safely converts any Sheets cell value to a number.
- *
- * With valueRenderOption: "UNFORMATTED_VALUE" the Sheets API returns numeric cells
- * as actual JS numbers (e.g. 160000, 0.0009) — not strings — so calling .trim()
- * on them would throw.  This function handles both cases:
- *   - number  → returned as-is (no parsing needed, no locale issues)
- *   - string  → normalise comma/dot separator then parseFloat
- *     "0,0009"   → "0.0009"   → 0.0009  ✓
- *     "1.234,56" → "1234.56"  → 1234.56  ✓
- */
 function parseNum(value: unknown): number {
     if (value === null || value === undefined || value === "") return 0;
-
-    // Native number returned by UNFORMATTED_VALUE — use directly
     if (typeof value === "number") return isNaN(value) ? 0 : value;
 
-    // String path — normalise locale decimal separator
     let s = String(value).trim();
     if (s === "") return 0;
 
@@ -99,15 +93,12 @@ function parseNum(value: unknown): number {
     return parseFloat(s) || 0;
 }
 
-// Row values from UNFORMATTED_VALUE can be string | number | boolean
 type SheetCell = string | number | boolean | null | undefined;
-
-const str = (v: SheetCell): string => (v === null || v === undefined ? "" : String(v));
+const str = (v: SheetCell): string => (v === null || v === undefined ? "" : String(v).trim());
 
 /** Parse Google Sheets dates or fallback to string */
 function parseDate(value: SheetCell): string {
     if (typeof value === "number") {
-        // Base date is December 30, 1899
         const baseDate = new Date(Date.UTC(1899, 11, 30));
         const date = new Date(baseDate.getTime() + value * 24 * 60 * 60 * 1000);
         const dd = String(date.getUTCDate()).padStart(2, '0');
@@ -119,10 +110,19 @@ function parseDate(value: SheetCell): string {
 }
 
 export function parseSheetRow(row: SheetCell[]): InvestmentTransaction {
+    const rawCurrency = str(row[10]).toUpperCase();
+    const currency: Currency = rawCurrency === "USD" ? "USD" : "ARS";
+    const fxRate = parseNum(row[11]) || undefined;
+
+    const rawType = str(row[2]);
+    let type: TransactionType = "Compra";
+    if (rawType === "Venta") type = "Venta";
+    else if (rawType === "Split") type = "Split";
+
     return {
         id:         str(row[0]),
         date:       parseDate(row[1]),
-        type:       (str(row[2]) as TransactionType) || "Compra",
+        type,
         asset:      str(row[3]).toUpperCase(),
         assetType:  (str(row[4]) as AssetType)       || "Acciones",
         quantity:   parseNum(row[5]),
@@ -130,9 +130,10 @@ export function parseSheetRow(row: SheetCell[]): InvestmentTransaction {
         commission: parseNum(row[7]),
         cartera:    (str(row[8]) as Cartera)          || "Crecimiento",
         comment:    str(row[9]),
+        currency,
+        fxRate,
     };
 }
-
 
 export function transactionToRow(tx: Omit<InvestmentTransaction, "id">): (string | number)[] {
     return [
@@ -145,21 +146,65 @@ export function transactionToRow(tx: Omit<InvestmentTransaction, "id">): (string
         tx.commission,
         tx.cartera,
         tx.comment,
+        tx.currency || "ARS",
+        tx.fxRate || 0,
     ];
+}
+
+/* ─── Currency Normalization Helper ─── */
+
+/**
+ * Converts a transaction unit price and commission to the desired displayCurrency (ARS or USD).
+ */
+export function getNormalizedTxPrices(
+    tx: InvestmentTransaction,
+    displayCurrency: Currency,
+    fallbackFX: number
+): { unitPrice: number; commission: number } {
+    if (tx.type === "Split") {
+        return { unitPrice: 0, commission: 0 };
+    }
+
+    const txCurrency: Currency = tx.currency || "ARS";
+    const fx = (tx.fxRate && tx.fxRate > 0) ? tx.fxRate : (fallbackFX > 0 ? fallbackFX : 1);
+
+    if (displayCurrency === "ARS") {
+        if (txCurrency === "USD") {
+            return {
+                unitPrice: tx.unitPrice * fx,
+                commission: tx.commission * fx,
+            };
+        }
+        return {
+            unitPrice: tx.unitPrice,
+            commission: tx.commission,
+        };
+    } else {
+        // displayCurrency === "USD"
+        if (txCurrency === "USD") {
+            return {
+                unitPrice: tx.unitPrice,
+                commission: tx.commission,
+            };
+        }
+        return {
+            unitPrice: fx > 0 ? tx.unitPrice / fx : tx.unitPrice,
+            commission: fx > 0 ? tx.commission / fx : tx.commission,
+        };
+    }
 }
 
 /* ─── Core Calculation Functions ─── */
 
 /**
  * Calculates the weighted average cost of purchase for a set of buy transactions.
- * Formula: Σ(qty × price) / Σ(qty)
  */
 export function calculateAverageCost(buys: InvestmentTransaction[]): number {
     let totalCost = 0;
     let totalQty = 0;
 
     for (const b of buys) {
-        if (b.quantity <= 0) continue;
+        if (b.quantity <= 0 || b.type !== "Compra") continue;
         totalCost += b.quantity * b.unitPrice;
         totalQty += b.quantity;
     }
@@ -170,11 +215,13 @@ export function calculateAverageCost(buys: InvestmentTransaction[]): number {
 
 /**
  * Builds the full portfolio from a list of transactions and current prices.
- * Handles average cost recalculation on each buy and realized P&L on each sale.
+ * Supports Multi-currency (ARS / USD) and Split corporate actions.
  */
 export function buildPortfolio(
     transactions: InvestmentTransaction[],
-    currentPrices: Record<string, number>
+    currentPrices: Record<string, number>,
+    displayCurrency: Currency = "ARS",
+    fallbackFX: number = 1
 ): PortfolioHolding[] {
     // Sort chronologically
     const sorted = [...transactions].sort((a, b) => {
@@ -183,11 +230,10 @@ export function buildPortfolio(
         return (ya - yb) || (ma - mb) || (da - db);
     });
 
-    // Internal tracking per asset
     const assets: Record<string, {
         assetType: AssetType;
         totalQuantity: number;
-        totalCost: number;       // total cost basis of current holdings
+        totalCost: number;       // total cost basis of current holdings in displayCurrency
         totalCommissions: number;
         realizedPnl: number;
     }> = {};
@@ -204,33 +250,34 @@ export function buildPortfolio(
             };
         }
         const a = assets[key];
+        const { unitPrice, commission } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
 
         if (tx.type === "Compra") {
-            a.totalCost += tx.quantity * tx.unitPrice;
+            a.totalCost += tx.quantity * unitPrice;
             a.totalQuantity += tx.quantity;
-            a.totalCommissions += tx.commission;
+            a.totalCommissions += commission;
         } else if (tx.type === "Venta") {
-            // Calculate realized P&L using the current average cost
             const avgCost = a.totalQuantity > 0 ? a.totalCost / a.totalQuantity : 0;
             const sellQty = Math.min(tx.quantity, a.totalQuantity);
             const costBasis = avgCost * sellQty;
-            const saleRevenue = tx.unitPrice * sellQty - tx.commission;
+            const saleRevenue = unitPrice * sellQty - commission;
             a.realizedPnl += saleRevenue - costBasis;
 
-            // Reduce holdings proportionally
-            a.totalCost -= avgCost * sellQty;
+            a.totalCost -= costBasis;
             a.totalQuantity -= sellQty;
-            a.totalCommissions += tx.commission;
+            a.totalCommissions += commission;
 
-            // Clamp to avoid floating-point negatives
             if (a.totalQuantity < 0.000001) {
                 a.totalQuantity = 0;
                 a.totalCost = 0;
             }
+        } else if (tx.type === "Split") {
+            // Split action: Multiplies quantity, totalCost remains identical, avgCost adjusts
+            const factor = tx.quantity > 0 ? tx.quantity : 1;
+            a.totalQuantity = a.totalQuantity * factor;
         }
     }
 
-    // Build holdings array
     const holdings: PortfolioHolding[] = [];
 
     for (const [asset, data] of Object.entries(assets)) {
@@ -261,9 +308,102 @@ export function buildPortfolio(
 }
 
 /**
+ * Calculates the Time-Weighted Return (TWR) of the portfolio.
+ * Eliminates cash flow bias and supports Splits.
+ */
+export function calculateTWR(
+    transactions: InvestmentTransaction[],
+    currentPrices: Record<string, number>,
+    displayCurrency: Currency = "ARS",
+    fallbackFX: number = 1
+): number {
+    if (transactions.length === 0) return 0;
+
+    const sorted = [...transactions].sort((a, b) => {
+        const [da, ma, ya] = a.date.split("/").map(Number);
+        const [db, mb, yb] = b.date.split("/").map(Number);
+        return (ya - yb) || (ma - mb) || (da - db);
+    });
+
+    const dateGroups: Record<string, InvestmentTransaction[]> = {};
+    for (const tx of sorted) {
+        if (!dateGroups[tx.date]) dateGroups[tx.date] = [];
+        dateGroups[tx.date].push(tx);
+    }
+    const dates = Object.keys(dateGroups);
+
+    let twrMultiplier = 1;
+    const runningQty: Record<string, number> = {};
+    const lastKnownPrice: Record<string, number> = {};
+    let previousValueAfter = 0;
+
+    for (const date of dates) {
+        const txs = dateGroups[date];
+
+        for (const tx of txs) {
+            if (tx.type !== "Split") {
+                const { unitPrice } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
+                lastKnownPrice[tx.asset] = unitPrice;
+            }
+        }
+
+        let valueBefore = 0;
+        for (const [asset, qty] of Object.entries(runningQty)) {
+            valueBefore += qty * (lastKnownPrice[asset] || 0);
+        }
+
+        if (previousValueAfter > 0) {
+            const r = (valueBefore - previousValueAfter) / previousValueAfter;
+            twrMultiplier *= (1 + r);
+        }
+
+        let netCashFlow = 0;
+        for (const tx of txs) {
+            const { unitPrice, commission } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
+            const grossFlow = tx.quantity * unitPrice;
+
+            if (tx.type === "Compra") {
+                runningQty[tx.asset] = (runningQty[tx.asset] || 0) + tx.quantity;
+                netCashFlow += grossFlow + commission;
+            } else if (tx.type === "Venta") {
+                runningQty[tx.asset] = Math.max(0, (runningQty[tx.asset] || 0) - tx.quantity);
+                netCashFlow -= (grossFlow - commission);
+            } else if (tx.type === "Split") {
+                const factor = tx.quantity > 0 ? tx.quantity : 1;
+                runningQty[tx.asset] = (runningQty[tx.asset] || 0) * factor;
+                if (lastKnownPrice[tx.asset]) {
+                    lastKnownPrice[tx.asset] /= factor;
+                }
+            }
+        }
+
+
+        previousValueAfter = valueBefore + netCashFlow;
+    }
+
+    let finalValue = 0;
+    for (const [asset, qty] of Object.entries(runningQty)) {
+        finalValue += qty * (currentPrices[asset] || lastKnownPrice[asset] || 0);
+    }
+
+    if (previousValueAfter > 0) {
+        const r = (finalValue - previousValueAfter) / previousValueAfter;
+        twrMultiplier *= (1 + r);
+    }
+
+    return (twrMultiplier - 1) * 100;
+}
+
+/**
  * Computes a high-level summary of the entire portfolio.
  */
-export function getPortfolioSummary(holdings: PortfolioHolding[]): PortfolioSummary {
+export function getPortfolioSummary(
+    holdings: PortfolioHolding[],
+    transactions: InvestmentTransaction[] = [],
+    currentPrices: Record<string, number> = {},
+    displayCurrency: Currency = "ARS",
+    fallbackFX: number = 1
+): PortfolioSummary {
     const activeHoldings = holdings.filter(h => h.totalQuantity > 0);
 
     const totalInvested = activeHoldings.reduce((s, h) => s + h.totalInvested, 0);
@@ -271,17 +411,32 @@ export function getPortfolioSummary(holdings: PortfolioHolding[]): PortfolioSumm
     const totalPnl = totalCurrentValue - totalInvested;
     const totalPnlPercent = totalInvested > 0 ? (totalPnl / totalInvested) * 100 : 0;
     const totalRealizedPnl = holdings.reduce((s, h) => s + h.realizedPnl, 0);
+    const twr = calculateTWR(transactions, currentPrices, displayCurrency, fallbackFX);
 
     // Diversification by asset type
     const byType: Record<string, number> = {};
+    const byCurrency: Record<string, number> = { ARS: 0, USD: 0 };
+
     for (const h of activeHoldings) {
         byType[h.assetType] = (byType[h.assetType] || 0) + h.currentValue;
+        
+        if (h.assetType === "Acciones") {
+            byCurrency["ARS"] += h.currentValue;
+        } else {
+            byCurrency["USD"] += h.currentValue;
+        }
     }
 
     const diversification = Object.entries(byType).map(([label, value]) => ({
         label,
         value: Math.round(value * 100) / 100,
         color: ASSET_TYPE_COLORS[label as AssetType] || "#94a3b8",
+    }));
+    
+    const currencyDiversification = Object.entries(byCurrency).map(([label, value]) => ({
+        label,
+        value: Math.round(value * 100) / 100,
+        color: label === "USD" ? "#10b981" : "#3b82f6",
     }));
 
     return {
@@ -290,18 +445,21 @@ export function getPortfolioSummary(holdings: PortfolioHolding[]): PortfolioSumm
         totalPnl: Math.round(totalPnl * 100) / 100,
         totalPnlPercent: Math.round(totalPnlPercent * 100) / 100,
         totalRealizedPnl: Math.round(totalRealizedPnl * 100) / 100,
+        twr: Math.round(twr * 100) / 100,
         holdingsCount: activeHoldings.length,
         diversification,
+        currencyDiversification,
     };
 }
 
 /**
  * Generates a time series of portfolio value for the evolution chart.
- * Each point represents the state after all transactions on that date.
  */
 export function getPortfolioHistory(
     transactions: InvestmentTransaction[],
-    currentPrices: Record<string, number>
+    currentPrices: Record<string, number>,
+    displayCurrency: Currency = "ARS",
+    fallbackFX: number = 1
 ): PortfolioHistoryPoint[] {
     if (transactions.length === 0) return [];
 
@@ -314,36 +472,59 @@ export function getPortfolioHistory(
     const points: PortfolioHistoryPoint[] = [];
     const runningHoldings: Record<string, { qty: number; cost: number }> = {};
     const runningHoldingsByCartera: Record<string, { qty: number; cost: number }> = {};
+    const lastKnownPrice: Record<string, number> = {};
 
-    // Group by date
+    let twrMultiplier = 1.0;
+    let previousValueAfter = 0;
+
     const dateGroups: Record<string, InvestmentTransaction[]> = {};
     for (const tx of sorted) {
         if (!dateGroups[tx.date]) dateGroups[tx.date] = [];
         dateGroups[tx.date].push(tx);
     }
 
-    for (const [date, txs] of Object.entries(dateGroups)) {
+    const groupEntries = Object.entries(dateGroups);
+    for (let idx = 0; idx < groupEntries.length; idx++) {
+        const [date, txs] = groupEntries[idx];
+
+        // 1. Calculate portfolio value right before today's transactions
+        let valueBefore = 0;
+        for (const [asset, h] of Object.entries(runningHoldings)) {
+            valueBefore += h.qty * (lastKnownPrice[asset] || 0);
+        }
+
+        if (previousValueAfter > 0) {
+            const r = (valueBefore - previousValueAfter) / previousValueAfter;
+            twrMultiplier *= (1 + r);
+        }
+
+        let netCashFlow = 0;
         for (const tx of txs) {
-            // Global holdings
             if (!runningHoldings[tx.asset]) {
                 runningHoldings[tx.asset] = { qty: 0, cost: 0 };
             }
             const h = runningHoldings[tx.asset];
 
-            // Cartera holdings
             const carteraKey = `${tx.asset}|${tx.cartera}`;
             if (!runningHoldingsByCartera[carteraKey]) {
                 runningHoldingsByCartera[carteraKey] = { qty: 0, cost: 0 };
             }
             const hc = runningHoldingsByCartera[carteraKey];
 
+            const { unitPrice, commission } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
+            const grossFlow = tx.quantity * unitPrice;
+            if (unitPrice > 0) {
+                lastKnownPrice[tx.asset] = unitPrice;
+            }
+
             if (tx.type === "Compra") {
-                h.cost += tx.quantity * tx.unitPrice;
+                h.cost += tx.quantity * unitPrice;
                 h.qty += tx.quantity;
 
-                hc.cost += tx.quantity * tx.unitPrice;
+                hc.cost += tx.quantity * unitPrice;
                 hc.qty += tx.quantity;
-            } else {
+                netCashFlow += grossFlow + commission;
+            } else if (tx.type === "Venta") {
                 const avgCost = h.qty > 0 ? h.cost / h.qty : 0;
                 const sellQty = Math.min(tx.quantity, h.qty);
                 h.cost -= avgCost * sellQty;
@@ -355,20 +536,42 @@ export function getPortfolioHistory(
                 hc.cost -= avgCostC * sellQtyC;
                 hc.qty -= sellQtyC;
                 if (hc.qty < 0.000001) { hc.qty = 0; hc.cost = 0; }
+                netCashFlow -= (sellQty * unitPrice - commission);
+            } else if (tx.type === "Split") {
+
+                const factor = tx.quantity > 0 ? tx.quantity : 1;
+                h.qty *= factor;
+                hc.qty *= factor;
+                if (lastKnownPrice[tx.asset]) {
+                    lastKnownPrice[tx.asset] /= factor;
+                }
             }
         }
 
+        previousValueAfter = valueBefore + netCashFlow;
+
         let invested = 0;
         let value = 0;
+        const isLastPoint = (idx === groupEntries.length - 1);
+
         for (const [asset, h] of Object.entries(runningHoldings)) {
             invested += h.cost;
-            value += (currentPrices[asset] || 0) * h.qty;
+            const p = currentPrices[asset] || lastKnownPrice[asset] || 0;
+            value += p * h.qty;
+        }
+
+        // If it's the last point, reflect current price gains into the final TWR
+        let pointTWR = twrMultiplier;
+        if (isLastPoint && previousValueAfter > 0) {
+            const r = (value - previousValueAfter) / previousValueAfter;
+            pointTWR = twrMultiplier * (1 + r);
         }
 
         const valueByCartera: Record<string, number> = {};
         for (const [key, hc] of Object.entries(runningHoldingsByCartera)) {
             const [asset, cartera] = key.split("|");
-            const currentVal = (currentPrices[asset] || 0) * hc.qty;
+            const p = currentPrices[asset] || lastKnownPrice[asset] || 0;
+            const currentVal = p * hc.qty;
             valueByCartera[cartera] = (valueByCartera[cartera] || 0) + currentVal;
         }
 
@@ -377,10 +580,10 @@ export function getPortfolioHistory(
             invested: Math.round(invested * 100) / 100,
             value: Math.round(value * 100) / 100,
             valueByCartera,
+            twrPercent: Math.round((pointTWR - 1) * 10000) / 100,
         });
     }
 
-    // Sort the final points arrays chronologically just to be 100% sure
     points.sort((a, b) => {
         const [da, ma, ya] = a.date.split("/").map(Number);
         const [db, mb, yb] = b.date.split("/").map(Number);
@@ -389,3 +592,4 @@ export function getPortfolioHistory(
 
     return points;
 }
+

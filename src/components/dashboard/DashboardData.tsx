@@ -16,7 +16,14 @@ import {
 } from 'chart.js';
 import { Pie, Line } from 'react-chartjs-2';
 import SankeyChart from "./SankeyChart";
-import { CATEGORY_COLORS } from "@/lib/constants";
+import HealthMetrics from "./HealthMetrics";
+import IntelligenceAlerts from "./IntelligenceAlerts";
+import TransactionsList from "./TransactionsList";
+import { CATEGORY_COLORS, CategoryItem } from "@/lib/constants";
+import ConfirmDialog from "@/components/layout/ConfirmDialog";
+import { detectSubscriptions, projectEndOfMonth, calculateVestaScore, Subscription } from "@/lib/utils/intelligence";
+import { fmt, parseSafeAmount, roundMoney } from "@/lib/utils/format";
+import { parseStartMonth } from "@/lib/utils/cuotas";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler);
 
@@ -57,12 +64,98 @@ export default function DashboardData() {
     const [pieFilter, setPieFilter] = useState<"Egreso" | "Ingreso">("Egreso");
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [lineFilter, setLineFilter] = useState<"Comparativo" | "Balance" | "Categorias">("Comparativo");
-    const [balanceMonth, setBalanceMonth] = useState<string>("Total");
+    
+    // Por defecto mostramos el mes actual corriente (MM/YYYY) para ver los datos más recientes de inmediato
+    const [balanceMonth, setBalanceMonth] = useState<string>(() => {
+        const now = new Date();
+        return `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+    });
+    
     const [themeTrigger, setThemeTrigger] = useState(0);
     const [searchTerm, setSearchTerm] = useState<string>("");
+    const [dialogPending, setDialogPending] = useState<(string | number)[] | null>(null);
 
     const [compItem1, setCompItem1] = useState<string>("Salario");
     const [compItem2, setCompItem2] = useState<string>("Alquiler");
+    const [dynamicCategories, setDynamicCategories] = useState<CategoryItem[]>([]);
+
+    useEffect(() => {
+        const loadCategories = () => {
+            fetch("/api/categories")
+                .then(r => r.ok ? r.json() : null)
+                .then(d => {
+                    if (d && Array.isArray(d.data)) {
+                        setDynamicCategories(d.data);
+                    }
+                })
+                .catch(() => {});
+        };
+        loadCategories();
+        window.addEventListener("categories_updated", loadCategories);
+        return () => window.removeEventListener("categories_updated", loadCategories);
+    }, []);
+
+    const dynamicColorMap = useMemo(() => {
+        const map: Record<string, string> = { ...CATEGORY_COLORS };
+        dynamicCategories.forEach(c => {
+            if (c.color && c.name) map[c.name] = c.color;
+        });
+        return map;
+    }, [dynamicCategories]);
+
+    // ─── Métricas de salud financiera ────────────────────────────────────────────
+    const [cuotasMesActual, setCuotasMesActual] = useState<number>(0);
+    const [cuotasProximas, setCuotasProximas] = useState<number>(0);
+    const [instalmentsData, setInstalmentsData] = useState<any[]>([]);
+
+    // Fetch cuotas al montar — para calcular el compromiso mensual de cuotas y alertas
+    useEffect(() => {
+        fetch("/api/cuotas")
+            .then(r => r.ok ? r.json() : null)
+            .then(json => {
+                if (!json?.data) return;
+                setInstalmentsData(json.data);
+                const now = new Date();
+                
+                let totalActual = 0;
+                let totalProximas = 0;
+
+                for (const inst of json.data) {
+                    const count = Number(inst.instalmentsCount) || 1;
+                    const total = Number(inst.totalAmount) || 0;
+                    if (count <= 0 || total <= 0) continue;
+                    const monthly = Math.round((total / count) * 100) / 100;
+                    const { month: sm, year: sy } = parseStartMonth(inst.startMonth, inst.date);
+                    
+                    const startIdx = sy * 12 + (sm - 1);
+                    const endIdx = startIdx + count - 1;
+                    const nowIdx = now.getFullYear() * 12 + now.getMonth();
+                    
+                    if (nowIdx >= startIdx && nowIdx <= endIdx) {
+                        totalActual += monthly;
+                    }
+
+                    // Vencimiento en próximos 7 días (asumiendo que vencen el día 1 del mes)
+                    // Si estamos a 7 días o menos del fin de mes, alertamos sobre las del mes que viene.
+                    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                    if (daysInMonth - now.getDate() <= 7) {
+                        const nextMonthIdx = nowIdx + 1;
+                        if (nextMonthIdx >= startIdx && nextMonthIdx <= endIdx) {
+                            totalProximas += monthly;
+                        }
+                    } else if (now.getDate() <= 7) {
+                        // Si estamos en los primeros 7 días, alertamos sobre las de ESTE mes (ya vencieron o están por vencer)
+                        if (nowIdx >= startIdx && nowIdx <= endIdx) {
+                            totalProximas += monthly;
+                        }
+                    }
+                }
+                
+                setCuotasMesActual(Math.round(totalActual * 100) / 100);
+                setCuotasProximas(Math.round(totalProximas * 100) / 100);
+            })
+            .catch(() => { /* sin cuotas — no es crítico para el dashboard */ });
+    }, []);
 
     useEffect(() => {
         const observer = new MutationObserver(() => setThemeTrigger(prev => prev + 1));
@@ -164,6 +257,18 @@ export default function DashboardData() {
         });
     }, [data]);
 
+    // Si el mes actual seleccionado no tiene movimientos registrados todavía,
+    // seleccionamos automáticamente el mes más reciente que SÍ tenga datos.
+    useEffect(() => {
+        if (data.length > 0 && availableMonths.length > 0) {
+            const hasDataForSelected = availableMonths.includes(balanceMonth);
+            if (!hasDataForSelected && balanceMonth !== "Total") {
+                const latestMonth = availableMonths.find(m => m.includes("/")) || availableMonths[0];
+                if (latestMonth) setBalanceMonth(latestMonth);
+            }
+        }
+    }, [data, availableMonths]);
+
     const { availableCompItems, groupedCompItems, subCatToCatMap, itemTypeMap } = useMemo(() => {
         const items = new Set<string>();
         const map: Record<string, string> = {};
@@ -219,20 +324,58 @@ export default function DashboardData() {
         });
     }, [data, balanceMonth]);
 
-    const { balance, ingresos, egresos } = useMemo(() => {
-        let b = 0; let i = 0; let e = 0;
+    const { balance, ingresos, egresos, inversiones, ahorros } = useMemo(() => {
+        let b = 0; let i = 0; let e = 0; let inv = 0; let a = 0;
         filteredData.forEach(row => {
             if (row.length < 6) return;
             const type = row[2];
+            const val = parseSafeAmount(row[5]);
+            const comment = String(row[6] || "").toLowerCase();
+            const subCat = String(row[4] || "").toLowerCase();
+            const category = String(row[3] || "").toLowerCase();
+            const isVenta = comment.includes("venta") || subCat.includes("rescate");
 
-            const amountRaw = String(row[5]);
-            const cleanAmountStr = amountRaw.replace(/[^\d.,-]/g, '');
-            const val = parseFloat(cleanAmountStr.replace(/\./g, '').replace(',', '.')) || 0;
-            if (type === "Ingreso") { i += val; b += val; }
-            if (type === "Egreso") { e += val; b -= val; }
+            if (type === "Ingreso") {
+                i += val;
+                b += val;
+            } else if (type === "Egreso") {
+                e += val;
+                b -= val;
+            } else if (type === "Ahorro") {
+                const isRetiro = category.includes("retiro") || val < 0;
+                if (isRetiro) {
+                    b += Math.abs(val);
+                    a -= Math.abs(val);
+                } else {
+                    b -= Math.abs(val);
+                    a += Math.abs(val);
+                }
+            } else if (type === "Inversión") {
+                if (isVenta) {
+                    b += val;
+                    inv -= val;
+                } else {
+                    b -= val;
+                    inv += val;
+                }
+            }
         });
-        return { balance: b, ingresos: i, egresos: e };
+        return {
+            balance: roundMoney(b),
+            ingresos: roundMoney(i),
+            egresos: roundMoney(e),
+            inversiones: roundMoney(inv),
+            ahorros: roundMoney(a)
+        };
     }, [filteredData]);
+
+    const subscriptions = useMemo(() => detectSubscriptions(data), [data]);
+    const cashflowProjection = useMemo(() => projectEndOfMonth(egresos, balanceMonth), [egresos, balanceMonth]);
+    const vestaScore = useMemo(() => {
+        const tan = ingresos > 0 ? ((ingresos - egresos) / ingresos) * 100 : 0;
+        const dti = ingresos > 0 ? (cuotasMesActual / ingresos) * 100 : 0;
+        return calculateVestaScore(tan, dti, true, subscriptions.length > 0);
+    }, [ingresos, egresos, cuotasMesActual, subscriptions.length]);
 
     const pieData = useMemo(() => {
         const itemTotals: Record<string, number> = {};
@@ -247,7 +390,7 @@ export default function DashboardData() {
             if (selectedCategory && category !== selectedCategory) return;
 
             const labelKey = selectedCategory ? subCategory : category;
-            const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+            const val = parseSafeAmount(row[5]);
 
             if (!itemTotals[labelKey]) itemTotals[labelKey] = 0;
             itemTotals[labelKey] += val;
@@ -259,13 +402,13 @@ export default function DashboardData() {
                 data: Object.values(itemTotals),
                 backgroundColor: Object.keys(itemTotals).map((label, idx) => {
                     const fallbackColors = ['#5E82D5', '#98B3E1', '#ECAEA9', '#E0726B', '#7BBD9F', '#B3E1C5', '#F5D38A', '#F1AD5C'];
-                    return CATEGORY_COLORS[label] || fallbackColors[idx % fallbackColors.length];
+                    return dynamicColorMap[label] || fallbackColors[idx % fallbackColors.length];
                 }),
                 borderColor: isDark ? 'rgba(30, 41, 59, 1)' : 'rgba(255, 255, 255, 1)',
                 borderWidth: 2,
             }]
         };
-    }, [filteredData, pieFilter, selectedCategory, isDark]);
+    }, [filteredData, pieFilter, selectedCategory, isDark, dynamicColorMap]);
 
     const lineData = useMemo(() => {
         const dailyData: Record<string, { ingreso: number, egreso: number, balanceDay: number, categories: Record<string, number> }> = {};
@@ -288,7 +431,7 @@ export default function DashboardData() {
 
             const type = row[2];
             const category = String(row[3]);
-            const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+            const val = parseSafeAmount(row[5]);
 
             if (!dailyData[dateStr]) dailyData[dateStr] = { ingreso: 0, egreso: 0, balanceDay: 0, categories: {} };
 
@@ -327,7 +470,7 @@ export default function DashboardData() {
         } else if (lineFilter === "Categorias") {
             // Create a dataset for each category found
             Array.from(allCategoriesEncountered).forEach((cat, idx) => {
-                const color = CATEGORY_COLORS[cat] || catColors[idx % catColors.length];
+                const color = dynamicColorMap[cat] || catColors[idx % catColors.length];
                 datasets.push({
                     label: cat,
                     data: labels.map(l => dailyData[l].categories[cat] || 0),
@@ -348,7 +491,7 @@ export default function DashboardData() {
         }
 
         return { labels, datasets };
-    }, [filteredData, lineFilter]);
+    }, [filteredData, lineFilter, dynamicColorMap]);
 
     const compLineData = useMemo(() => {
         const dailyData: Record<string, { a: number, b: number }> = {};
@@ -365,7 +508,7 @@ export default function DashboardData() {
 
             const category = String(row[3]);
             const subCategory = String(row[4]);
-            const val = parseFloat(String(row[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+            const val = parseSafeAmount(row[5]);
 
             if (!dailyData[dateStr]) dailyData[dateStr] = { a: 0, b: 0 };
 
@@ -377,7 +520,7 @@ export default function DashboardData() {
 
         const getColor = (item: string, fallbackColor: string) => {
             const cat = subCatToCatMap[item] || item;
-            if (CATEGORY_COLORS[cat]) return CATEGORY_COLORS[cat];
+            if (dynamicColorMap[cat]) return dynamicColorMap[cat];
             if (itemTypeMap[item] === "Ingreso") return '#22c55e';
             if (itemTypeMap[item] === "Egreso") return '#ef4444';
             return fallbackColor;
@@ -421,8 +564,27 @@ export default function DashboardData() {
         return results.slice(0, txLimit);
     }, [filteredData, txLimit, searchTerm]);
 
-    const handleDelete = async (tx: (string | number)[]) => {
-        if (!window.confirm("¿Seguro que querés eliminar este movimiento?")) return;
+    const handleDelete = (tx: (string | number)[]) => {
+        setDialogPending(tx);
+    };
+
+    const handleEditTransaction = async (id: string, field: string, value: unknown) => {
+        const res = await fetch("/api/transactions", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, field, value }),
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "Error al actualizar el movimiento.");
+        }
+        fetchDataSilent();
+    };
+
+    const handleConfirmDelete = async () => {
+        const tx = dialogPending;
+        setDialogPending(null);
+        if (!tx) return;
 
         try {
             const res = await fetch("/api/transactions", {
@@ -432,12 +594,16 @@ export default function DashboardData() {
             });
             if (res.ok) {
                 fetchDataSilent();
-                window.dispatchEvent(new Event("transaction_added")); // Reuses the same event to reload
+                window.dispatchEvent(new Event("transaction_added"));
             } else {
-                alert("Error al borrar el movimiento.");
+                const data = await res.json().catch(() => ({}));
+                console.error("Error al borrar movimiento:", data.error);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error("Error de red al intentar borrar movimiento:", e);
+        }
     };
+
 
     if (loading) {
         return (
@@ -476,6 +642,48 @@ export default function DashboardData() {
 
     return (
         <>
+            {/* Diálogo de confirmación de borrado — reemplaza window.confirm() */}
+            <ConfirmDialog
+                isOpen={!!dialogPending}
+                title="Eliminar movimiento"
+                message={dialogPending
+                    ? `¿Eliminar "${dialogPending[3]} – ${dialogPending[4]}" del ${dialogPending[1]}?${dialogPending[7] ? "\n\n⚠️ Este movimiento tiene cuotas asociadas que también serán eliminadas." : ""}`
+                    : ""}
+                confirmLabel="Eliminar"
+                cancelLabel="Cancelar"
+                danger
+                onConfirm={handleConfirmDelete}
+                onCancel={() => setDialogPending(null)}
+            />
+
+
+            <HealthMetrics 
+                balanceMonth={balanceMonth}
+                setBalanceMonth={setBalanceMonth}
+                availableMonths={availableMonths}
+                ingresos={ingresos} 
+                egresos={egresos} 
+                balance={balance} 
+                inversiones={inversiones}
+                ahorros={ahorros}
+                cuotasMesActual={cuotasMesActual} 
+                vestaScore={vestaScore} 
+                data={data}
+            />
+
+            <IntelligenceAlerts 
+                cashflowProjection={cashflowProjection} 
+                subscriptions={subscriptions} 
+                cuotasProximas={cuotasProximas} 
+                availableMonths={availableMonths} 
+                data={data} 
+                balanceMonth={balanceMonth}
+                balance={balance}
+                ingresos={ingresos}
+                egresos={egresos}
+                instalmentsData={instalmentsData}
+            />
+
             {/* Gráfico Torta */}
             <section className={`glass-panel ${styles.card}`}>
                 <div className={styles.headerWithTabs}>
@@ -693,84 +901,17 @@ export default function DashboardData() {
             </section>
 
             {/* Movimientos List */}
-            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
-                <div className={styles.headerWithTabs} style={{ marginBottom: "16px" }}>
-                    <h3 className="text-muted">Historial de Movimientos</h3>
-                </div>
-                <input
-                    type="text"
-                    className={styles.searchInput}
-                    placeholder="🔍 Buscar movimiento..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                />
-
-                {recentTx.length === 0 ? (
-                    <p className="text-muted text-center" style={{ marginTop: "20px" }}>No hay nada registrado aún.</p>
-                ) : (
-                    <>
-                        <ul className={styles.txList}>
-                            {recentTx.map((tx, idx) => {
-                                const isEgreso = tx[2] === "Egreso";
-                                const val = parseFloat(String(tx[5]).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
-
-                                const isDiscount = isEgreso && val < 0;
-                                const isIncome = !isEgreso;
-
-                                let amountColor = "var(--danger-color)";
-                                let amountSign = "-";
-                                let iconChar = isEgreso ? "📉" : "📈";
-
-                                const subCat = String(tx[4]);
-                                if (SUBCATEGORY_EMOJIS[subCat]) {
-                                    iconChar = SUBCATEGORY_EMOJIS[subCat];
-                                }
-
-                                if (isIncome) {
-                                    amountColor = "var(--success-color)";
-                                    amountSign = "+";
-                                } else if (isDiscount) {
-                                    amountColor = "var(--accent-color)"; /* Azul/Accent */
-                                    amountSign = "+"; /* Impacta positivamente */
-                                }
-
-                                const fmtAmt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(Math.abs(val));
-
-                                return (
-                                    <li key={idx} className={styles.txItem}>
-                                        <div className={styles.txInfo}>
-                                            <div className={styles.txIcon} style={{ color: amountColor }}>
-                                                {iconChar}
-                                            </div>
-                                            <div style={{ minWidth: 0 }}>
-                                                <p className={styles.txTitle}>{tx[3]} - {tx[4]}</p>
-                                                <p className={styles.txDate}>{tx[1]} • <span style={{ fontSize: "0.80rem", opacity: 0.8 }}>{tx[6]}</span></p>
-                                            </div>
-                                        </div>
-                                        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
-                                            <div className={styles.txAmount} style={{ color: amountColor, whiteSpace: "nowrap" }}>
-                                                {amountSign}{fmtAmt}
-                                            </div>
-                                            <button
-                                                onClick={() => handleDelete(tx)}
-                                                style={{ background: "none", border: "none", color: "var(--danger-color)", cursor: "pointer", fontSize: "1.2rem", padding: "0 4px", flexShrink: 0 }}
-                                                title="Eliminar movimiento"
-                                            >
-                                                ×
-                                            </button>
-                                        </div>
-                                    </li>
-                                )
-                            })}
-                        </ul>
-                        {filteredData.length > txLimit && (
-                            <button className={styles.loadMoreBtn} onClick={() => setTxLimit(filteredData.length)}>
-                                Ver Todos los Movimientos 👇
-                            </button>
-                        )}
-                    </>
-                )}
-            </section>
+            <TransactionsList 
+                transactions={recentTx} 
+                totalCount={filteredData.length} 
+                searchTerm={searchTerm} 
+                setSearchTerm={setSearchTerm} 
+                txLimit={txLimit} 
+                setTxLimit={setTxLimit} 
+                onDelete={handleDelete}
+                onEdit={handleEditTransaction}
+            />
         </>
     );
 }
+

@@ -1,29 +1,53 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendInstalment, getInstalments } from "@/lib/google/instalments";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { parseSafeAmount, roundMoney } from "@/lib/utils/format";
+import { parseStartMonth } from "@/lib/utils/cuotas";
+import { safeErrorResponse } from "@/lib/utils/api-error";
+
+export const dynamic = "force-dynamic";
 
 export async function GET() {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session) {
+        const supabase = await createClient();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
             return NextResponse.json({ error: "No autorizado" }, { status: 401 });
         }
 
-        const rows = await getInstalments();
+        const { data: sbData, error } = await supabase
+            .from("instalments")
+            .select("id, date, concept, total_amount, instalments_count, start_month, tarjeta")
+            .eq("user_id", user.id)
+            .order("date", { ascending: false })
+            .limit(10000);
 
-        // Mapear rows a un formato de objeto para el frontend
-        const data = rows.map((row: any[]) => ({
-            id: row[0],
-            date: row[1],
-            concept: row[2],
-            totalAmount: parseFloat(String(row[3]).replace(/[^0-9,-]/g, '').replace(',', '.')) || 0,
-            instalmentsCount: parseInt(String(row[4])) || 1,
-            startMonth: row[5],
-            tarjeta: row[6] || "",
-        }));
+        if (error) {
+            console.error("Error consultando cuotas:", error);
+            throw error;
+        }
 
-        return NextResponse.json({ data });
+        const data = (sbData || []).map((inst) => {
+            let formattedDate = inst.date;
+            if (inst.date && inst.date.includes("-")) {
+                const [y, m, d] = inst.date.split("-");
+                formattedDate = `${d}/${m}/${y}`;
+            }
+            const parsedMonth = parseStartMonth(inst.start_month, formattedDate);
+            return {
+                id: inst.id,
+                date: formattedDate,
+                concept: inst.concept,
+                totalAmount: Number(inst.total_amount) || 0,
+                instalmentsCount: Number(inst.instalments_count) || 1,
+                startMonth: parsedMonth.monthKey,
+                tarjeta: inst.tarjeta || "",
+            };
+        });
+
+        return NextResponse.json({ data, source: "supabase" });
     } catch (error: unknown) {
         console.error("Error consultando cuotas:", error);
         return NextResponse.json(
@@ -35,36 +59,78 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
     try {
-        const session = await getServerSession(authOptions);
-        if (!session) {
+        const supabase = await createClient();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
             return NextResponse.json({ error: "No autorizado" }, { status: 401 });
         }
 
         const body = await req.json();
         const { date, concept, totalAmount, instalmentsCount, startMonth, tarjeta } = body;
 
+        const cleanConcept = String(concept || "").trim();
+        if (!cleanConcept) {
+            return NextResponse.json(
+                { error: "El concepto de la compra en cuotas es obligatorio." },
+                { status: 400 }
+            );
+        }
+
+        const numTotalAmount = roundMoney(parseSafeAmount(totalAmount));
+        if (numTotalAmount <= 0) {
+            return NextResponse.json(
+                { error: "El monto total a financiar debe ser un número mayor a cero." },
+                { status: 400 }
+            );
+        }
+
+        const count = parseInt(String(instalmentsCount), 10);
+        if (isNaN(count) || count < 1) {
+            return NextResponse.json(
+                { error: "La cantidad de cuotas debe ser un número entero mayor o igual a 1." },
+                { status: 400 }
+            );
+        }
+
         const instalmentId = crypto.randomUUID();
 
-        // Evitar inyección de fórmulas de Sheets
-        const sanitize = (val: string) => /^[=+\-@]/.test(val) ? `'${val}` : val;
+        // Format date to ISO for Postgres
+        let isoDate = date;
+        if (date && date.includes("/")) {
+            const parts = date.split("/");
+            if (parts.length === 3) {
+                isoDate = `${parts[2]}-${parts[1].padStart(2, "0")}-${parts[0].padStart(2, "0")}`;
+            }
+        }
 
-        const row = [
-            instalmentId,
-            sanitize(date),
-            sanitize(concept),
-            totalAmount,
-            instalmentsCount,
-            sanitize(startMonth),
-            sanitize(tarjeta || "")
-        ];
+        const { error: sbError } = await supabase.from("instalments").insert({
+            id: instalmentId,
+            user_id: user.id,
+            date: isoDate,
+            concept: cleanConcept,
+            total_amount: numTotalAmount,
+            instalments_count: count,
+            start_month: String(startMonth || ""),
+            tarjeta: tarjeta ? String(tarjeta).trim() : null,
+        });
 
-        await appendInstalment([row]);
+        if (sbError) {
+            console.error("Error insertando cuota en Supabase:", sbError);
+            throw new Error(`No se pudo guardar la cuota en Supabase: ${sbError.message}`);
+        }
 
-        return NextResponse.json({ success: true, id: instalmentId });
+        return NextResponse.json({
+            success: true,
+            id: instalmentId,
+            type: "instalments",
+        });
     } catch (error: unknown) {
         console.error("Error guardando cuota:", error);
         return NextResponse.json(
-            { error: "Error al guardar en la base de datos de cuotas." },
+            safeErrorResponse(error, "Error al guardar en la base de datos de cuotas."),
             { status: 500 }
         );
     }

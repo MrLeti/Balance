@@ -1,58 +1,154 @@
 /* globals.css */
 
 :root {
-  /* Light Mode Palette */
-  --bg-color: #f3f6fc;
-  --text-main: #1e293b;
-  --text-muted: #64748b;
+  /* Material Design 3 Tokens - Light Theme */
+  --md-sys-color-primary: #0061a4;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #d1e4ff;
+  --md-sys-color-on-primary-container: #001d36;
+  
+  --md-sys-color-secondary: #535f70;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #d7e3f7;
+  --md-sys-color-on-secondary-container: #101c2b;
 
-  --glass-bg: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.6);
-  --glass-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.03), 0 20px 25px -5px rgba(0, 0, 0, 0.02);
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
 
-  --accent-color: #3b82f6;
-  /* Modern Blue */
-  --accent-hover: #2563eb;
+  --md-sys-color-background: #fdfcff;
+  --md-sys-color-on-background: #1a1c1e;
+  
+  --md-sys-color-surface: #fdfcff;
+  --md-sys-color-on-surface: #1a1c1e;
+  --md-sys-color-surface-variant: #dfe2eb;
+  --md-sys-color-on-surface-variant: #42474e;
+  
+  --md-sys-color-surface-container-low: #f7f6f9;
+  --md-sys-color-surface-container: #f1f0f4;
+  --md-sys-color-surface-container-high: #ebeaef;
 
-  --success-color: #22c55e;
-  --danger-color: #ef4444;
-  --warning-color: #eab308;
+  --md-sys-color-success: #146c2e;
+  --md-sys-color-warning: #7d5700;
+
+  /* Legacy mappings (Progressive Migration) */
+  --bg-color: var(--md-sys-color-background);
+  --text-main: var(--md-sys-color-on-surface);
+  --text-muted: var(--md-sys-color-on-surface-variant);
+  --surface-container: var(--md-sys-color-surface-container);
+  --surface-hover: rgba(0, 0, 0, 0.05);
+
+  --glass-bg: rgba(253, 252, 255, 0.85);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.03);
+
+  --accent-color: var(--md-sys-color-primary);
+  --accent-hover: #004d84;
+  --success-color: var(--md-sys-color-success);
+  --danger-color: var(--md-sys-color-error);
+  --warning-color: var(--md-sys-color-warning);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    /* Dark Mode Palette */
-    --bg-color: #0f172a;
-    /* Deep Slate */
-    --text-main: #f8fafc;
-    --text-muted: #94a3b8;
+    /* Material Design 3 Tokens - Dark Theme */
+    --md-sys-color-primary: #9ecaeb; /* Slightly desaturated blue */
+    --md-sys-color-on-primary: #003258;
+    --md-sys-color-primary-container: #00497d;
+    --md-sys-color-on-primary-container: #d1e4ff;
+    
+    --md-sys-color-secondary: #bbc7db;
+    --md-sys-color-on-secondary: #253140;
+    --md-sys-color-secondary-container: #3b4858;
+    --md-sys-color-on-secondary-container: #d7e3f7;
 
-    --glass-bg: rgba(15, 23, 42, 0.65);
-    /* Slate 900 con opacidad */
-    --glass-border: rgba(255, 255, 255, 0.05);
-    /* Borde sutil */
+    --md-sys-color-error: #ffb4ab;
+    --md-sys-color-on-error: #690005;
+    --md-sys-color-error-container: #93000a;
+    --md-sys-color-on-error-container: #ffdad6;
+
+    --md-sys-color-background: #0f1418;
+    --md-sys-color-on-background: #e1e2e6;
+    
+    --md-sys-color-surface: #13171a;
+    --md-sys-color-on-surface: #e1e2e6;
+    --md-sys-color-surface-variant: #42474e;
+    --md-sys-color-on-surface-variant: #c3c7cf;
+    
+    --md-sys-color-surface-container-low: #191c20;
+    --md-sys-color-surface-container: #1d2024;
+    --md-sys-color-surface-container-high: #272a2f;
+
+    --md-sys-color-success: #81c995;
+    --md-sys-color-warning: #f2c94c;
+
+    /* Legacy mappings */
+    --bg-color: var(--md-sys-color-background);
+    --text-main: var(--md-sys-color-on-surface);
+    --text-muted: var(--md-sys-color-on-surface-variant);
+    --surface-container: var(--md-sys-color-surface-container);
+    --surface-hover: rgba(255, 255, 255, 0.06);
+
+    --glass-bg: rgba(19, 23, 26, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.08);
     --glass-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 
-    --accent-color: #60a5fa;
-    --accent-hover: #3b82f6;
+    --accent-color: var(--md-sys-color-primary);
+    --accent-hover: #b4d8f7;
+    --success-color: var(--md-sys-color-success);
+    --danger-color: var(--md-sys-color-error);
+    --warning-color: var(--md-sys-color-warning);
   }
 }
 
 [data-theme="dark"] {
-  /* Dark Mode Palette */
-  --bg-color: #0f172a;
-  /* Deep Slate */
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
+    /* Same as dark scheme above */
+    --md-sys-color-primary: #9ecaeb;
+    --md-sys-color-on-primary: #003258;
+    --md-sys-color-primary-container: #00497d;
+    --md-sys-color-on-primary-container: #d1e4ff;
+    
+    --md-sys-color-secondary: #bbc7db;
+    --md-sys-color-on-secondary: #253140;
+    --md-sys-color-secondary-container: #3b4858;
+    --md-sys-color-on-secondary-container: #d7e3f7;
 
-  --glass-bg: rgba(15, 23, 42, 0.65);
-  /* Slate 900 con opacidad */
-  --glass-border: rgba(255, 255, 255, 0.05);
-  /* Borde sutil */
-  --glass-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    --md-sys-color-error: #ffb4ab;
+    --md-sys-color-on-error: #690005;
+    --md-sys-color-error-container: #93000a;
+    --md-sys-color-on-error-container: #ffdad6;
 
-  --accent-color: #60a5fa;
-  --accent-hover: #3b82f6;
+    --md-sys-color-background: #0f1418;
+    --md-sys-color-on-background: #e1e2e6;
+    
+    --md-sys-color-surface: #13171a;
+    --md-sys-color-on-surface: #e1e2e6;
+    --md-sys-color-surface-variant: #42474e;
+    --md-sys-color-on-surface-variant: #c3c7cf;
+    
+    --md-sys-color-surface-container-low: #191c20;
+    --md-sys-color-surface-container: #1d2024;
+    --md-sys-color-surface-container-high: #272a2f;
+
+    --md-sys-color-success: #81c995;
+    --md-sys-color-warning: #f2c94c;
+
+    --bg-color: var(--md-sys-color-background);
+    --text-main: var(--md-sys-color-on-surface);
+    --text-muted: var(--md-sys-color-on-surface-variant);
+    --surface-container: var(--md-sys-color-surface-container);
+    --surface-hover: rgba(255, 255, 255, 0.06);
+
+    --glass-bg: rgba(19, 23, 26, 0.85);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+
+    --accent-color: var(--md-sys-color-primary);
+    --accent-hover: #b4d8f7;
+    --success-color: var(--md-sys-color-success);
+    --danger-color: var(--md-sys-color-error);
+    --warning-color: var(--md-sys-color-warning);
 }
 
 * {
@@ -100,4 +196,25 @@ a {
 
 .text-muted {
   color: var(--text-muted);
+}
+
+/* ── App Shell & Sidebar Layout ── */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.app-main {
+  flex: 1;
+  margin-left: 240px;
+  min-width: 0;
+  transition: margin-left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    margin-left: 0 !important;
+    padding-bottom: 76px; /* Space for Mobile Bottom Nav */
+  }
 }

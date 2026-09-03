@@ -201,3 +201,167 @@
     font-weight: 700;
     color: var(--danger-color);
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Cards Table & Manager Styles
+   ───────────────────────────────────────────────────────────── */
+.tableResponsive {
+    width: 100%;
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid var(--glass-border);
+    background: rgba(0, 0, 0, 0.02);
+    margin-top: 16px;
+}
+
+.cardsTable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    text-align: left;
+}
+
+.cardsTable th {
+    padding: 12px 16px;
+    background: var(--md-sys-color-surface-container-high, var(--glass-bg));
+    color: var(--text-main);
+    font-weight: 700;
+    border-bottom: 2px solid var(--glass-border);
+    white-space: nowrap;
+}
+
+.cardsTable td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--glass-border);
+    vertical-align: middle;
+}
+
+.cardsTable tr:last-child td {
+    border-bottom: none;
+}
+
+.cardsTable tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.cardNameCell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-weight: 600;
+}
+
+.colorPickerWrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.colorCircle {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.colorCircle:hover {
+    transform: scale(1.15);
+}
+
+.colorInputHidden {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+}
+
+.tableInput {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--bg-color);
+    color: var(--text-main);
+    font-size: 0.85rem;
+    width: 100%;
+    max-width: 120px;
+    transition: all 0.2s ease;
+}
+
+.tableInput:focus {
+    outline: none;
+    border-color: var(--accent-color);
+    box-shadow: 0 0 0 2px rgba(94, 130, 213, 0.2);
+}
+
+.tableActionBtn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 6px 10px;
+    border-radius: 8px;
+    transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.tableActionBtn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.saveRowBtn {
+    background: var(--accent-color);
+    color: white;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.saveRowBtn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.colorSwatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 4px;
+}
+
+.swatchBtn {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.swatchBtn:hover {
+    transform: scale(1.2);
+}
+
+.swatchActive {
+    border-color: white;
+    box-shadow: 0 0 0 2px var(--accent-color);
+    transform: scale(1.15);
+}
+
+.dateBadge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 0.85rem;
+    color: var(--text-color);
+}

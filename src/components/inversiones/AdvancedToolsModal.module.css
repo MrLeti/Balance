@@ -1,0 +1,178 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 16px;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.modal {
+    width: 100%;
+    max-width: 580px;
+    background: var(--surface-container, var(--md-sys-color-surface, #1d2024));
+    border: 1px solid var(--md-sys-color-surface-variant, rgba(255, 255, 255, 0.1));
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 20px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    color: var(--text-main, #ffffff);
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--md-sys-color-surface-variant, rgba(255, 255, 255, 0.08));
+    background: var(--md-sys-color-surface-container-low, rgba(0, 0, 0, 0.02));
+}
+
+.closeBtn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted, #9ca3af);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 8px;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.closeBtn:hover {
+    color: var(--text-main, #ffffff);
+    background: var(--surface-hover, rgba(255, 255, 255, 0.1));
+}
+
+.body {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.toolCard {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 18px;
+    border-radius: 14px;
+    background: var(--md-sys-color-surface, rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--md-sys-color-surface-variant, rgba(255, 255, 255, 0.08));
+    transition: all 0.2s ease;
+}
+
+.toolCard:hover {
+    background: var(--surface-hover, rgba(255, 255, 255, 0.05));
+    border-color: var(--accent-color, #3b82f6);
+}
+
+.toolInfo {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.toolTitle {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-main, #ffffff);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.toolDesc {
+    font-size: 0.82rem;
+    color: var(--text-muted, #9ca3af);
+    line-height: 1.4;
+}
+
+.importBtn {
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--md-sys-color-primary, #0061a4);
+    border: none;
+    color: var(--md-sys-color-on-primary, #ffffff);
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.importBtn:hover:not(:disabled) {
+    opacity: 0.9;
+    box-shadow: 0 0 12px rgba(59, 130, 246, 0.35);
+}
+
+.cleanBtn {
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--md-sys-color-error-container, rgba(239, 68, 68, 0.15));
+    border: 1px solid var(--md-sys-color-error, rgba(239, 68, 68, 0.5));
+    color: var(--md-sys-color-on-error-container, #ba1a1a);
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.cleanBtn:hover:not(:disabled) {
+    background: var(--md-sys-color-error, #ba1a1a);
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+}
+
+.csvBtn {
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+    border: 1px solid var(--md-sys-color-surface-variant, rgba(255, 255, 255, 0.15));
+    color: var(--text-main, #ffffff);
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.csvBtn:hover:not(:disabled) {
+    background: var(--md-sys-color-surface-container-high, rgba(255, 255, 255, 0.15));
+}
+
+.banner {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    background: var(--md-sys-color-primary-container, rgba(139, 92, 246, 0.12));
+    border: 1px solid var(--accent-color, rgba(139, 92, 246, 0.3));
+    color: var(--md-sys-color-on-primary-container, #ffffff);
+    animation: fadeIn 0.2s ease-out;
+}

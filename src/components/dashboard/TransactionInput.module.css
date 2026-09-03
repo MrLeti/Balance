@@ -68,6 +68,18 @@
     transform: translateY(1px);
 }
 
+.voiceListening {
+    background: rgba(239, 68, 68, 0.15) !important;
+    border-color: #ef4444 !important;
+    color: #ef4444 !important;
+    animation: pulse 1s infinite alternate;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); }
+    100% { transform: scale(1.05); box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+}
+
 .submitBtn {
     background: var(--text-main);
     color: var(--bg-color);
