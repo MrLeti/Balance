@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import styles from "./ValidationModal.module.css";
 import { CATEGORIES, ExtractedItem, TrxType, CategoryItem } from "@/lib/constants";
 import { parseSafeAmount, fmt } from "@/lib/utils/format";
@@ -12,7 +12,7 @@ interface ValidationModalProps {
     onSuccess: () => void;
 }
 
-// Image compression helper for mobile uploads
+// Image compression helper for mobile uploads to prevent Vercel 413 error
 const compressImage = async (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -86,15 +86,17 @@ const fromIsoDate = (isoStr: string) => {
 
 export default function ValidationModal({ items, initialType = "Egreso", onClose, onSuccess }: ValidationModalProps) {
     const defaultType = initialType || "Egreso";
-    const initialItems = items && items.length > 0
-        ? items.map(item => ({
+    const hasInitialItems = Boolean(items && items.length > 0);
+
+    const initialItems = hasInitialItems
+        ? (items || []).map(item => ({
             Fecha: item.Fecha || getTodayFormatted(),
             Tipo: (item.Tipo as TrxType) || defaultType,
             Categoría: item.Categoría || "",
             Subcategoría: item.Subcategoría || "",
             Monto: item.Monto !== undefined && item.Monto !== null ? String(item.Monto) : "",
             Comentario: item.Comentario || "",
-            isConfirmed: true
+            isConfirmed: false // Starts unchecked so user reviews and marks them, or clicks "Seleccionar todos"
         }))
         : [{
             Fecha: getTodayFormatted(),
@@ -107,7 +109,8 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         }];
 
     const [editableItems, setEditableItems] = useState(initialItems);
-    const [currentIndex, setCurrentIndex] = useState(0);
+    // If opened with items (e.g. from ticket OCR), default to list view
+    const [viewMode, setViewMode] = useState<"list" | "single">(hasInitialItems ? "list" : "single");
     const [isSaving, setIsSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -126,9 +129,8 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
     const [tarjetas, setTarjetas] = useState<{ id: string; nombre: string }[]>([]);
     const [selectedTarjeta, setSelectedTarjeta] = useState("");
 
-    // AI & Scanning state
+    // AI & Scanning state (AI analyze input is always visible)
     const [isProcessingAI, setIsProcessingAI] = useState(false);
-    const [showAiPrompt, setShowAiPrompt] = useState(false);
     const [aiTextPrompt, setAiTextPrompt] = useState("");
     const [isDragging, setIsDragging] = useState(false);
 
@@ -165,7 +167,6 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                 }
             })
             .catch(() => {
-                // Fallback default
                 setMepRate(1300);
             });
 
@@ -212,19 +213,35 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             .catch((e) => console.error(e));
     }, []);
 
-    // Current item being edited
-    const currentItem = editableItems[currentIndex] || editableItems[0];
+    // Selection helper computations
+    const allConfirmed = editableItems.length > 0 && editableItems.every(i => i.isConfirmed);
+    const someConfirmed = editableItems.some(i => i.isConfirmed);
+    const confirmedCount = editableItems.filter(i => i.isConfirmed).length;
+    const hasConfirmedEgreso = editableItems.some(i => i.isConfirmed && i.Tipo === "Egreso");
 
-    const handleFieldChange = (field: keyof ExtractedItem, value: string) => {
-        setEditableItems((prev) =>
-            prev.map((item, i) => (i === currentIndex ? { ...item, [field]: value } : item))
+    const handleToggleConfirm = (index: number) => {
+        setEditableItems(prev =>
+            prev.map((item, i) => i === index ? { ...item, isConfirmed: !item.isConfirmed } : item)
         );
     };
 
-    const handleTypeChange = (newType: TrxType) => {
-        setEditableItems((prev) =>
+    const handleToggleAll = () => {
+        const nextState = !allConfirmed;
+        setEditableItems(prev =>
+            prev.map(item => ({ ...item, isConfirmed: nextState }))
+        );
+    };
+
+    const handleFieldChange = (index: number, field: keyof ExtractedItem, value: string) => {
+        setEditableItems(prev =>
+            prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
+        );
+    };
+
+    const handleTypeChange = (index: number, newType: TrxType) => {
+        setEditableItems(prev =>
             prev.map((item, i) => {
-                if (i === currentIndex) {
+                if (i === index) {
                     return {
                         ...item,
                         Tipo: newType,
@@ -235,6 +252,55 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                 return item;
             })
         );
+    };
+
+    const handleAddNewItem = () => {
+        const newItem = {
+            Fecha: getTodayFormatted(),
+            Tipo: defaultType,
+            Categoría: "",
+            Subcategoría: "",
+            Monto: "",
+            Comentario: "",
+            isConfirmed: true
+        };
+        setEditableItems(prev => [...prev, newItem]);
+        setViewMode("list");
+    };
+
+    const handleRemoveItem = (index: number) => {
+        if (editableItems.length <= 1) {
+            setEditableItems([{
+                Fecha: getTodayFormatted(),
+                Tipo: defaultType,
+                Categoría: "",
+                Subcategoría: "",
+                Monto: "",
+                Comentario: "",
+                isConfirmed: true
+            }]);
+            return;
+        }
+        setEditableItems(prev => prev.filter((_, i) => i !== index));
+    };
+
+    // Calculate totals in ARS
+    const calculateGlobalTotal = () => {
+        const rawTotal = editableItems.reduce((acc, curr) => acc + parseSafeAmount(curr.Monto), 0);
+        if (currency === "USD" && mepRate && mepRate > 0) {
+            return (rawTotal * mepRate).toFixed(2);
+        }
+        return rawTotal.toFixed(2);
+    };
+
+    const calculateConfirmedTotal = () => {
+        const rawTotal = editableItems
+            .filter(i => i.isConfirmed)
+            .reduce((acc, curr) => acc + parseSafeAmount(curr.Monto), 0);
+        if (currency === "USD" && mepRate && mepRate > 0) {
+            return (rawTotal * mepRate).toFixed(2);
+        }
+        return rawTotal.toFixed(2);
     };
 
     // Process AI OCR or text directly in the modal
@@ -269,16 +335,15 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             if (data.items && data.items.length > 0) {
                 const newItems = data.items.map((it: ExtractedItem) => ({
                     Fecha: it.Fecha || getTodayFormatted(),
-                    Tipo: (it.Tipo as TrxType) || "Egreso",
+                    Tipo: (it.Tipo as TrxType) || defaultType,
                     Categoría: it.Categoría || "",
                     Subcategoría: it.Subcategoría || "",
                     Monto: it.Monto !== undefined && it.Monto !== null ? String(it.Monto) : "",
                     Comentario: it.Comentario || "",
-                    isConfirmed: true
+                    isConfirmed: false // User reviews and checks individual items, or uses "Seleccionar todos"
                 }));
                 setEditableItems(newItems);
-                setCurrentIndex(0);
-                setShowAiPrompt(false);
+                setViewMode("list"); // Automatically activate list view for reviewing ticket/invoice items!
                 setAiTextPrompt("");
             } else {
                 throw new Error("No se pudieron extraer datos del comprobante.");
@@ -291,50 +356,78 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         }
     };
 
-    // Multi-item management
-    const handleAddNewItem = () => {
-        const newItem = {
-            Fecha: getTodayFormatted(),
-            Tipo: currentItem?.Tipo || "Egreso",
-            Categoría: "",
-            Subcategoría: "",
-            Monto: "",
-            Comentario: "",
-            isConfirmed: true
-        };
-        setEditableItems((prev) => [...prev, newItem]);
-        setCurrentIndex(editableItems.length);
-    };
-
-    const handleRemoveCurrentItem = () => {
-        if (editableItems.length <= 1) return;
-        setEditableItems((prev) => prev.filter((_, i) => i !== currentIndex));
-        setCurrentIndex((prev) => Math.max(0, prev - 1));
-    };
-
-    // Calculate totals in ARS
-    const calculateTotal = () => {
-        const rawTotal = editableItems.reduce((acc, curr) => acc + parseSafeAmount(curr.Monto), 0);
-        if (currency === "USD" && mepRate && mepRate > 0) {
-            return (rawTotal * mepRate).toFixed(2);
+    // Helper to get available categories and subcategories for a given item
+    const getRowCategoryOptions = (tipo: TrxType, currentCategory: string) => {
+        if (tipo === "Ahorro") {
+            const cats = ["Aporte", "Retiro"];
+            const subcats = dynamicSavingsGoals.length > 0
+                ? dynamicSavingsGoals
+                : ["Fondo de Emergencia", "General", "Viaje", "Nueva PC", "Auto", "Otros ahorros"];
+            return { categories: cats, subcategories: subcats };
         }
-        return rawTotal.toFixed(2);
+
+        if (tipo === "Inversión") {
+            const cats = ["Activos Financieros"];
+            const subcats = ["Acciones", "Cedears", "Bonos", "ETFs", "Cripto", "Otros activos"];
+            return { categories: cats, subcategories: subcats };
+        }
+
+        const typeCats = dynamicCategories.filter(c => c.type === tipo);
+        if (typeCats.length > 0) {
+            const catNames = typeCats.map(c => c.name);
+            const foundCat = typeCats.find(c => c.name === currentCategory);
+            return {
+                categories: catNames,
+                subcategories: foundCat ? foundCat.subcategories : []
+            };
+        }
+
+        const fallbackMap = CATEGORIES[tipo as keyof typeof CATEGORIES] || {};
+        const fallbackCats = Object.keys(fallbackMap);
+        const fallbackSubcats = (fallbackMap as Record<string, string[]>)[currentCategory] || [];
+        return {
+            categories: fallbackCats,
+            subcategories: fallbackSubcats
+        };
+    };
+
+    const handleEnableInstalmentMode = () => {
+        const confirmedEgresos = editableItems.filter(i => i.isConfirmed && i.Tipo === "Egreso");
+        if (confirmedEgresos.length === 0) {
+            setErrorMsg("Seleccioná al menos un ítem de tipo Gasto para pagar en cuotas.");
+            return;
+        }
+
+        let initialConcept = "Varias compras";
+        if (confirmedEgresos.length === 1) {
+            initialConcept = confirmedEgresos[0].Comentario || confirmedEgresos[0].Subcategoría || "Compra en cuotas";
+        }
+        setInstalmentConcept(initialConcept);
+        setIsInstalmentMode(true);
     };
 
     const isFormValid = () => {
         if (editableItems.length === 0) return false;
-        const amt = parseSafeAmount(currentItem.Monto);
-        if (amt === 0 || isNaN(amt)) return false;
-        if ((currentItem.Tipo === "Ingreso" || currentItem.Tipo === "Inversión") && amt < 0) return false;
+        const confirmedItems = editableItems.filter(i => i.isConfirmed);
+        if (confirmedItems.length === 0) return false;
+
+        const hasValidAmounts = confirmedItems.every(i => {
+            const amt = parseSafeAmount(i.Monto);
+            if (amt === 0 || isNaN(amt)) return false;
+            if ((i.Tipo === "Ingreso" || i.Tipo === "Inversión") && amt < 0) return false;
+            return true;
+        });
+        if (!hasValidAmounts) return false;
+
         if (isInstalmentMode) {
-            const tot = parseFloat(calculateTotal());
+            const tot = parseFloat(calculateConfirmedTotal());
             const count = parseInt(instalmentsCount, 10);
             if (isNaN(tot) || tot <= 0 || isNaN(count) || count < 1) return false;
         }
         return true;
     };
 
-    const handleSave = async () => {
+    const handleSave = async (withInstalment = false) => {
         if (!isFormValid() || isSaving) return;
         setIsSaving(true);
         setErrorMsg(null);
@@ -342,9 +435,9 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         let cuotaId = "";
 
         try {
-            // 1. Si eligió cuotas (sólo para Egreso)
-            if (isInstalmentMode && currentItem.Tipo === "Egreso") {
-                const totalAmount = parseFloat(calculateTotal());
+            // 1. Si eligió cuotas (sólo para los egresos confirmados)
+            if (withInstalment) {
+                const totalAmount = parseFloat(calculateConfirmedTotal());
                 if (totalAmount <= 0) {
                     throw new Error("El monto total para pagar en cuotas debe ser mayor a cero.");
                 }
@@ -358,7 +451,7 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                 const mm = (today.getMonth() + 1).toString().padStart(2, "0");
                 const yyyy = today.getFullYear();
 
-                const concept = instalmentConcept.trim() || currentItem.Comentario || currentItem.Subcategoría || "Compra en cuotas";
+                const concept = instalmentConcept.trim() || "Compra en cuotas";
 
                 const cuotaRes = await fetch("/api/cuotas", {
                     method: "POST",
@@ -381,9 +474,10 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                 cuotaId = cuotaData.id;
             }
 
-            // 2. Formatear para backend en ARS: [Fecha, Tipo, Categoría, Subcategoría, MontoARS, Comentario, ID Cuota]
+            // 2. Formatear para backend en ARS ÚNICAMENTE los ítems marcados con isConfirmed: true
             const rowsToInsert = editableItems
                 .filter((item) => {
+                    if (!item.isConfirmed) return false;
                     const val = parseSafeAmount(item.Monto);
                     if (val === 0 || isNaN(val)) return false;
                     if ((item.Tipo === "Ingreso" || item.Tipo === "Inversión") && val < 0) return false;
@@ -414,12 +508,12 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                         item.Subcategoría || (item.Tipo === "Inversión" ? "Emergencia" : "Otros"),
                         finalVal,
                         commentWithFx,
-                        cuotaId
+                        item.Tipo === "Egreso" ? cuotaId : ""
                     ];
                 });
 
             if (rowsToInsert.length === 0) {
-                throw new Error("Por favor ingresa un monto válido distinto de cero.");
+                throw new Error("Por favor seleccioná al menos un ítem con monto válido.");
             }
 
             const res = await fetch("/api/transactions", {
@@ -446,11 +540,11 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             onSuccess();
             window.dispatchEvent(new Event("transaction_added"));
         } catch (err: unknown) {
-            // Rollback compensatorio: Si la cuota se creó pero la transacción falló, eliminar la cuota huérfana
+            // Rollback compensatorio si la cuota se creó pero la transacción falló
             if (cuotaId) {
                 try {
                     await fetch(`/api/cuotas/${cuotaId}`, { method: "DELETE" });
-                    console.info(`Rollback ejecutado con éxito: cuota ${cuotaId} eliminada tras falla en transacciones.`);
+                    console.info(`Rollback ejecutado: cuota ${cuotaId} eliminada tras falla en transacciones.`);
                 } catch (rollbackErr) {
                     console.error("Error intentando revertir cuota huérfana:", rollbackErr);
                 }
@@ -462,46 +556,6 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             setIsSaving(false);
         }
     };
-
-    // Dynamic Category and subcategory options
-    const { availableCategories, availableSubcategories } = useMemo(() => {
-        if (currentItem.Tipo === "Ahorro") {
-            return {
-                availableCategories: ["Aporte", "Retiro"],
-                availableSubcategories: dynamicSavingsGoals.length > 0
-                    ? dynamicSavingsGoals
-                    : ["Fondo de Emergencia", "General", "Viaje", "Nueva PC", "Auto", "Otros ahorros"]
-            };
-        }
-
-        if (currentItem.Tipo === "Inversión") {
-            return {
-                availableCategories: ["Activos Financieros"],
-                availableSubcategories: ["Acciones", "Cedears", "Bonos", "ETFs", "Cripto", "Otros activos"]
-            };
-        }
-
-        // Egreso or Ingreso from dynamicCategories
-        const typeCats = dynamicCategories.filter(c => c.type === currentItem.Tipo);
-        if (typeCats.length > 0) {
-            const catNames = typeCats.map(c => c.name);
-            const selectedCatObj = typeCats.find(c => c.name === currentItem.Categoría);
-            const subcats = selectedCatObj ? selectedCatObj.subcategories : [];
-            return {
-                availableCategories: catNames,
-                availableSubcategories: subcats
-            };
-        }
-
-        // Fallback to static CATEGORIES if dynamic categories not yet loaded
-        const fallbackMap = CATEGORIES[currentItem.Tipo as keyof typeof CATEGORIES] || {};
-        const fallbackCatNames = Object.keys(fallbackMap);
-        const fallbackSubcats = (fallbackMap as Record<string, string[]>)[currentItem.Categoría] || [];
-        return {
-            availableCategories: fallbackCatNames,
-            availableSubcategories: fallbackSubcats
-        };
-    }, [currentItem.Tipo, currentItem.Categoría, dynamicCategories, dynamicSavingsGoals]);
 
     // Drag and Drop listeners
     const handleDragOver = (e: React.DragEvent) => {
@@ -529,6 +583,18 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         }
     };
 
+    // Single item reference for single-item form mode
+    const singleItem = editableItems[0] || {
+        Fecha: getTodayFormatted(),
+        Tipo: defaultType,
+        Categoría: "",
+        Subcategoría: "",
+        Monto: "",
+        Comentario: "",
+        isConfirmed: true
+    };
+    const singleOptions = getRowCategoryOptions(singleItem.Tipo as TrxType, singleItem.Categoría);
+
     return (
         <div
             className={styles.overlay}
@@ -541,366 +607,138 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
         >
-            <div className={`${styles.modal} ${isDragging ? styles.dragActive : ""}`} role="dialog" aria-modal="true">
-                {/* Header Bar matching reference image: Close button left, Guardar button right */}
+            <div 
+                className={`${styles.modal} ${viewMode === "list" ? styles.modalList : ""} ${isDragging ? styles.dragActive : ""}`} 
+                role="dialog" 
+                aria-modal="true"
+            >
+                {/* Header Bar */}
                 <div className={styles.header}>
-                    <button
-                        type="button"
-                        className={styles.closeBtn}
-                        onClick={onClose}
-                        disabled={isSaving || isProcessingAI}
-                        aria-label="Cerrar modal"
-                    >
-                        ✕
-                    </button>
-
-                    <button
-                        type="button"
-                        className={styles.headerSaveBtn}
-                        onClick={handleSave}
-                        disabled={!isFormValid() || isSaving || isProcessingAI}
-                        aria-label="Guardar movimiento"
-                    >
-                        {isSaving ? "Guardando..." : "Guardar"}
-                    </button>
-                </div>
-
-                <div className={styles.scrollArea}>
-                    {/* Multi-item banner if AI OCR extracted multiple items */}
-                    {editableItems.length > 1 && (
-                        <div className={styles.multiItemNav}>
-                            <span className={styles.multiItemTitle}>
-                                Ítem {currentIndex + 1} de {editableItems.length} (Total: ${calculateTotal()})
-                            </span>
-                            <div className={styles.multiItemActions}>
-                                <button
-                                    type="button"
-                                    className={styles.navArrowBtn}
-                                    onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
-                                    disabled={currentIndex === 0}
-                                    title="Ítem anterior"
-                                >
-                                    ◀
-                                </button>
-                                <button
-                                    type="button"
-                                    className={styles.navArrowBtn}
-                                    onClick={() => setCurrentIndex((prev) => Math.min(editableItems.length - 1, prev + 1))}
-                                    disabled={currentIndex === editableItems.length - 1}
-                                    title="Siguiente ítem"
-                                >
-                                    ▶
-                                </button>
-                                <button
-                                    type="button"
-                                    className={styles.navArrowBtn}
-                                    onClick={handleAddNewItem}
-                                    title="Agregar otro ítem"
-                                >
-                                    ＋
-                                </button>
-                                <button
-                                    type="button"
-                                    className={styles.navArrowBtn}
-                                    style={{ color: "var(--danger-color)" }}
-                                    onClick={handleRemoveCurrentItem}
-                                    title="Eliminar este ítem"
-                                >
-                                    🗑️
-                                </button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Segmented Toggle: Gasto / Ingreso / Ahorro / Inversión */}
-                    <div className={styles.typeToggleWrapper}>
-                        <div className={styles.segmentedControl}>
-                            <button
-                                type="button"
-                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Egreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveGasto}` : ""}`}
-                                onClick={() => handleTypeChange("Egreso")}
-                            >
-                                <span>Gasto</span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Ingreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveIngreso}` : ""}`}
-                                onClick={() => handleTypeChange("Ingreso")}
-                            >
-                                <span>Ingreso</span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Ahorro" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveAhorro}` : ""}`}
-                                onClick={() => handleTypeChange("Ahorro")}
-                            >
-                                <span>Ahorro</span>
-                            </button>
-                            <button
-                                type="button"
-                                className={`${styles.segmentedBtn} ${currentItem.Tipo === "Inversión" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveInversion}` : ""}`}
-                                onClick={() => handleTypeChange("Inversión")}
-                            >
-                                <span>Inversión</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Operación para Inversión: Compra / Aporte vs Venta / Rescate */}
-                    {currentItem.Tipo === "Inversión" && (
-                        <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
-                            <button
-                                type="button"
-                                onClick={() => setInvOperation("Compra")}
-                                style={{
-                                    flex: 1,
-                                    padding: "8px 12px",
-                                    borderRadius: "10px",
-                                    border: invOperation === "Compra" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
-                                    background: invOperation === "Compra" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
-                                    color: invOperation === "Compra" ? "var(--text-main)" : "var(--text-muted)",
-                                    fontWeight: invOperation === "Compra" ? 700 : 500,
-                                    fontSize: "0.85rem",
-                                    cursor: "pointer",
-                                    transition: "all 0.2s ease"
-                                }}
-                            >
-                                🟢 Compra / Aporte (Salida de caja)
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setInvOperation("Venta")}
-                                style={{
-                                    flex: 1,
-                                    padding: "8px 12px",
-                                    borderRadius: "10px",
-                                    border: invOperation === "Venta" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
-                                    background: invOperation === "Venta" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
-                                    color: invOperation === "Venta" ? "var(--text-main)" : "var(--text-muted)",
-                                    fontWeight: invOperation === "Venta" ? 700 : 500,
-                                    fontSize: "0.85rem",
-                                    cursor: "pointer",
-                                    transition: "all 0.2s ease"
-                                }}
-                            >
-                                🔴 Venta / Rescate (Entrada a caja)
-                            </button>
-                        </div>
-                    )}
-
-                    {/* MONTO Section con Selector ARS / USD (MEP) */}
-                    <div className={styles.sectionBlock}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <label className={styles.sectionLabel} htmlFor="trx-amount">
-                                Monto
-                            </label>
-                            {currency === "USD" && mepRate && (
-                                <span style={{ fontSize: "0.75rem", color: "#8b5cf6", fontWeight: 600 }}>
-                                    Dólar MEP: ${mepRate} · Equivalente: {fmt(parseSafeAmount(currentItem.Monto) * mepRate)}
+                    <div className={styles.headerLeft}>
+                        <button
+                            type="button"
+                            className={styles.closeBtn}
+                            onClick={onClose}
+                            disabled={isSaving || isProcessingAI}
+                            aria-label="Cerrar modal"
+                        >
+                            ✕
+                        </button>
+                        <div className={styles.titleWrapper}>
+                            <h2 className={styles.title}>
+                                {isInstalmentMode 
+                                    ? "Configurar Cuotas" 
+                                    : viewMode === "list" 
+                                        ? "Revisar y Confirmar Comprobante" 
+                                        : "Nuevo Movimiento"}
+                            </h2>
+                            {viewMode === "list" && !isInstalmentMode && (
+                                <span className={styles.itemCountBadge}>
+                                    {editableItems.length} {editableItems.length === 1 ? "ítem detectado" : "ítems detectados"}
                                 </span>
                             )}
                         </div>
-                        <div className={styles.amountCard}>
-                            <div 
-                                className={styles.currencyBadge}
-                                onClick={() => setCurrency(currency === "ARS" ? "USD" : "ARS")}
-                                title="Cambiar divisa ARS / USD (conversión automática al Dólar MEP)"
-                                style={{ cursor: "pointer", userSelect: "none" }}
-                            >
-                                <span>{currency}</span>
-                                <span className={styles.currencyArrow}>▾</span>
-                            </div>
-                            <div className={styles.amountDivider} />
-                            <div className={styles.amountInputWrapper}>
-                                <span className={styles.amountPrefix}>{currency === "USD" ? "u$s" : "$"}</span>
-                                <input
-                                    id="trx-amount"
-                                    type="number"
-                                    inputMode="decimal"
-                                    step="any"
-                                    min="0"
-                                    className={styles.amountInput}
-                                    placeholder="0,00"
-                                    value={currentItem.Monto}
-                                    onChange={(e) => handleFieldChange("Monto", e.target.value)}
-                                    autoFocus
-                                />
-                            </div>
-                        </div>
                     </div>
 
-                    {/* Grid of Fields: Categoría & Subcategoría, Nota & Fecha */}
-                    <div className={styles.formGrid}>
-                        {/* Categoría */}
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label} htmlFor="trx-category">
-                                Categoría
-                            </label>
-                            <select
-                                id="trx-category"
-                                className={styles.selectStyle}
-                                value={currentItem.Categoría}
-                                onChange={(e) => {
-                                    handleFieldChange("Categoría", e.target.value);
-                                    handleFieldChange("Subcategoría", "");
-                                }}
-                            >
-                                <option value="">Seleccionar</option>
-                                {availableCategories.map((cat) => (
-                                    <option key={cat} value={cat}>
-                                        {cat}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Subcategoría */}
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label} htmlFor="trx-subcategory">
-                                Subcategoría
-                            </label>
-                            <select
-                                id="trx-subcategory"
-                                className={styles.selectStyle}
-                                value={currentItem.Subcategoría}
-                                onChange={(e) => handleFieldChange("Subcategoría", e.target.value)}
-                                disabled={!currentItem.Categoría}
-                            >
-                                <option value="">
-                                    {currentItem.Categoría ? "Seleccionar" : "- Elige categoría -"}
-                                </option>
-                                {availableSubcategories.map((subCat) => (
-                                    <option key={subCat} value={subCat}>
-                                        {subCat}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-
-                        {/* Nota (Opcional) */}
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label} htmlFor="trx-comment">
-                                Nota (Opcional)
-                            </label>
+                    <div className={styles.headerRight}>
+                        {/* Scan ticket button */}
+                        <label 
+                            className={styles.actionPillBtn} 
+                            title="Escanear ticket o factura (foto / PDF)"
+                            style={{ cursor: isProcessingAI ? "wait" : "pointer" }}
+                        >
+                            <span>📸</span>
+                            <span className={styles.actionPillText}>{isProcessingAI ? "Escaneando..." : "Escanear ticket"}</span>
                             <input
-                                id="trx-comment"
-                                type="text"
-                                className={styles.inputStyle}
-                                placeholder='Ej: "Aporte a Fondo de Emergencia" o "10 AAPL"'
-                                value={currentItem.Comentario}
-                                onChange={(e) => handleFieldChange("Comentario", e.target.value)}
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/*, application/pdf"
+                                capture="environment"
+                                className={styles.hiddenInput}
+                                disabled={isProcessingAI}
+                                onChange={(e) => {
+                                    if (e.target.files && e.target.files[0]) {
+                                        void processWithAI(e.target.files[0]);
+                                        e.target.value = "";
+                                    }
+                                }}
                             />
-                        </div>
+                        </label>
 
-                        {/* Fecha */}
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label} htmlFor="trx-date">
-                                Fecha
-                            </label>
-                            <div className={styles.dateWrapper}>
-                                <span className={styles.dateIcon}>📅</span>
-                                <input
-                                    id="trx-date"
-                                    type="date"
-                                    className={`${styles.inputStyle} ${styles.dateInput}`}
-                                    value={toIsoDate(currentItem.Fecha)}
-                                    onChange={(e) => handleFieldChange("Fecha", fromIsoDate(e.target.value))}
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Opciones Adicionales (sólo para Gastos o OCR) */}
-                    <div className={styles.optionsSection}>
-                        <div className={styles.optionsTitle}>
-                            <span>Opciones adicionales</span>
-                        </div>
-                        <div className={styles.optionsPills}>
-                            {/* Cuotas Pill (Sólo para Gastos) */}
-                            {currentItem.Tipo === "Egreso" && (
-                                <button
-                                    type="button"
-                                    className={`${styles.optionPill} ${isInstalmentMode ? styles.optionPillActive : ""}`}
-                                    onClick={() => {
-                                        const next = !isInstalmentMode;
-                                        setIsInstalmentMode(next);
-                                        if (next && !instalmentConcept) {
-                                            setInstalmentConcept(currentItem.Comentario || currentItem.Subcategoría || "Compra en cuotas");
-                                        }
-                                    }}
-                                >
-                                    <span>💳</span>
-                                    <span>{isInstalmentMode ? "Pagar en cuotas ✓" : "+ Pagar en cuotas"}</span>
-                                </button>
-                            )}
-
-                            {/* Scan Ticket Pill */}
-                            <label className={styles.optionPill} style={{ cursor: "pointer" }}>
-                                <span>📸</span>
-                                <span>{isProcessingAI ? "Escaneando..." : "Escanear comprobante"}</span>
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept="image/*, application/pdf"
-                                    capture="environment"
-                                    className={styles.hiddenInput}
-                                    disabled={isProcessingAI}
-                                    onChange={(e) => {
-                                        if (e.target.files && e.target.files[0]) {
-                                            void processWithAI(e.target.files[0]);
-                                            e.target.value = "";
-                                        }
-                                    }}
-                                />
-                            </label>
-
-                            {/* Text AI prompt */}
+                        {/* View Mode Toggle when entering manually */}
+                        {editableItems.length <= 1 && !isInstalmentMode && (
                             <button
                                 type="button"
-                                className={`${styles.optionPill} ${showAiPrompt ? styles.optionPillActive : ""}`}
-                                onClick={() => setShowAiPrompt(!showAiPrompt)}
+                                className={styles.viewModeToggleBtn}
+                                onClick={() => setViewMode(viewMode === "list" ? "single" : "list")}
+                                title={viewMode === "list" ? "Cambiar a formulario simple" : "Cambiar a vista de lista"}
                             >
-                                <span>✨</span>
-                                <span>Autocompletar con IA</span>
+                                {viewMode === "list" ? "📝 Formulario" : "📋 Modo Lista"}
                             </button>
-                        </div>
+                        )}
                     </div>
+                </div>
 
-                    {/* Expandable AI Prompt Input */}
-                    {showAiPrompt && (
-                        <div className={styles.cuotasCard}>
-                            <label className={styles.label}>Escribe lo que gastaste, ingresaste o invertiste</label>
-                            <div style={{ display: "flex", gap: "8px" }}>
-                                <input
-                                    type="text"
-                                    className={styles.inputStyle}
-                                    placeholder='Ej: "Invertí 50000 en CEDEARs de Apple" o "Gasté 4500 en farmacia"'
-                                    value={aiTextPrompt}
-                                    onChange={(e) => setAiTextPrompt(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && aiTextPrompt.trim()) {
-                                            e.preventDefault();
-                                            void processWithAI(undefined, aiTextPrompt);
-                                        }
-                                    }}
-                                />
-                                <button
-                                    type="button"
-                                    className={styles.saveBtn}
-                                    onClick={() => processWithAI(undefined, aiTextPrompt)}
-                                    disabled={isProcessingAI || !aiTextPrompt.trim()}
-                                >
-                                    {isProcessingAI ? "..." : "✨ Procesar"}
-                                </button>
+                <div className={styles.scrollArea}>
+                    {/* ALWAYS VISIBLE AI ANALYZE BAR WITH ROTATING GLOWING AURA */}
+                    {!isInstalmentMode && (
+                        <div className={styles.aiGlowOuter}>
+                            {/* Layer 1: Soft, intense rotating outer glow */}
+                            <div className={styles.aiGlowBlur} aria-hidden="true" />
+                            {/* Layer 2: Rotating border with inner card */}
+                            <div className={styles.aiPromptContainer}>
+                                <div className={styles.aiPromptCard}>
+                                    <div className={styles.aiPromptHeader}>
+                                        <span className={styles.aiSparkleIcon}>✨</span>
+                                        <span className={styles.aiPromptTitle}>Analizar con IA</span>
+                                        <span className={styles.aiPromptHint}>
+                                            Escribí o pegá lo que compraste (ej: &quot;4500 en súper y 1200 en farmacia&quot;)
+                                        </span>
+                                    </div>
+                                    <div className={styles.aiPromptInputRow}>
+                                        <input
+                                            type="text"
+                                            className={styles.aiInputField}
+                                            placeholder='Escribí lo que compraste, gastaste o ingresaste...'
+                                            value={aiTextPrompt}
+                                            onChange={(e) => setAiTextPrompt(e.target.value)}
+                                            disabled={isProcessingAI}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" && aiTextPrompt.trim() && !isProcessingAI) {
+                                                    e.preventDefault();
+                                                    void processWithAI(undefined, aiTextPrompt);
+                                                }
+                                            }}
+                                        />
+                                        <button
+                                            type="button"
+                                            className={styles.aiAnalyzeBtn}
+                                            onClick={() => processWithAI(undefined, aiTextPrompt)}
+                                            disabled={isProcessingAI || !aiTextPrompt.trim()}
+                                        >
+                                            {isProcessingAI ? (
+                                                <>
+                                                    <span className={styles.spinIcon}>⏳</span>
+                                                    <span>Analizando...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span>✨</span>
+                                                    <span>Analizar</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Expandable Cuotas Configuration */}
-                    {isInstalmentMode && currentItem.Tipo === "Egreso" && (
+                    {/* VIEW MODE 1: CUOTAS CONFIGURATION */}
+                    {isInstalmentMode ? (
                         <div className={styles.cuotasCard}>
                             <div className={styles.cuotasDesc}>
-                                El monto total <strong>${calculateTotal()}</strong> se registrará hoy como devengado y se proyectará en pagos futuros en tu dashboard de Cuotas.
+                                El monto total confirmado de <strong>${calculateConfirmedTotal()}</strong> se registrará hoy como gasto devengado y se proyectará en pagos futuros en tu calendario de Cuotas.
                             </div>
 
                             <div className={styles.cuotasGrid}>
@@ -911,7 +749,7 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                         className={styles.inputStyle}
                                         value={instalmentConcept}
                                         onChange={(e) => setInstalmentConcept(e.target.value)}
-                                        placeholder="Ej: Zapatillas"
+                                        placeholder="Ej: Compra Coto en cuotas"
                                     />
                                 </div>
 
@@ -955,39 +793,452 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                 </div>
                             </div>
                         </div>
+                    ) : viewMode === "list" ? (
+                        /* VIEW MODE 2: THE RESTORED LIST-BASED SYSTEM FOR INVOICES & TICKETS */
+                        <div className={styles.listContainer}>
+                            {/* Toolbar with "Seleccionar todos" and "＋ Agregar ítem" */}
+                            <div className={styles.listToolbar}>
+                                <label className={styles.selectAllLabel} title="Marcar o desmarcar todos los movimientos">
+                                    <input
+                                        type="checkbox"
+                                        className={styles.checkbox}
+                                        checked={allConfirmed && editableItems.length > 0}
+                                        onChange={handleToggleAll}
+                                        aria-label="Seleccionar todos los movimientos"
+                                    />
+                                    <span className={styles.selectAllText}>
+                                        {allConfirmed ? "Deseleccionar todos" : "Seleccionar todos los movimientos"}
+                                    </span>
+                                    <span className={styles.selectionCounter}>
+                                        ({confirmedCount} de {editableItems.length} marcados)
+                                    </span>
+                                </label>
+
+                                <div className={styles.toolbarActions}>
+                                    <button
+                                        type="button"
+                                        className={styles.addBtnSmall}
+                                        onClick={handleAddNewItem}
+                                    >
+                                        <span>＋</span> Agregar fila
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Responsive Table / Cards */}
+                            <div className={styles.tableWrapper}>
+                                <table className={styles.table}>
+                                    <thead>
+                                        <tr>
+                                            <th className={styles.thCheckbox} style={{ textAlign: "center" }}>
+                                                <input
+                                                    type="checkbox"
+                                                    className={styles.checkbox}
+                                                    checked={allConfirmed && editableItems.length > 0}
+                                                    onChange={handleToggleAll}
+                                                    title="Seleccionar todos"
+                                                    aria-label="Seleccionar todos"
+                                                />
+                                            </th>
+                                            <th className={styles.thFecha}>Fecha</th>
+                                            <th className={styles.thTipo}>Tipo</th>
+                                            <th className={styles.thCategoria}>Categoría</th>
+                                            <th className={styles.thSubcategoria}>Subcategoría</th>
+                                            <th className={styles.thComentario}>Detalle / Producto</th>
+                                            <th className={styles.thMonto} style={{ textAlign: "right" }}>Monto</th>
+                                            <th className={styles.thActions} style={{ textAlign: "center" }}>Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {editableItems.map((item, index) => {
+                                            const options = getRowCategoryOptions(item.Tipo as TrxType, item.Categoría);
+
+                                            return (
+                                                <tr
+                                                    key={index}
+                                                    className={`${item.isConfirmed ? styles.rowConfirmed : styles.rowUnconfirmed}`}
+                                                >
+                                                    {/* 1. Checkbox */}
+                                                    <td className={styles.cellCheckbox}>
+                                                        <label className={styles.checkboxLabel}>
+                                                            <input
+                                                                type="checkbox"
+                                                                className={styles.checkbox}
+                                                                checked={item.isConfirmed}
+                                                                onChange={() => handleToggleConfirm(index)}
+                                                                aria-label={`Seleccionar ítem ${index + 1}`}
+                                                            />
+                                                            <span className={styles.itemIndexBadge}>#{index + 1}</span>
+                                                        </label>
+                                                    </td>
+
+                                                    {/* 2. Fecha */}
+                                                    <td className={styles.cellFecha}>
+                                                        <input
+                                                            type="date"
+                                                            className={styles.inputStyle}
+                                                            value={toIsoDate(item.Fecha)}
+                                                            onChange={(e) => handleFieldChange(index, "Fecha", fromIsoDate(e.target.value))}
+                                                            title="Fecha del movimiento"
+                                                        />
+                                                    </td>
+
+                                                    {/* 3. Tipo */}
+                                                    <td className={styles.cellTipo}>
+                                                        <select
+                                                            className={`${styles.selectStyle} ${
+                                                                item.Tipo === "Egreso" ? styles.selectTipoEgreso :
+                                                                item.Tipo === "Ingreso" ? styles.selectTipoIngreso :
+                                                                item.Tipo === "Ahorro" ? styles.selectTipoAhorro :
+                                                                styles.selectTipoInversion
+                                                            }`}
+                                                            value={item.Tipo}
+                                                            onChange={(e) => handleTypeChange(index, e.target.value as TrxType)}
+                                                        >
+                                                            <option value="Egreso">Egreso</option>
+                                                            <option value="Ingreso">Ingreso</option>
+                                                            <option value="Ahorro">Ahorro</option>
+                                                            <option value="Inversión">Inversión</option>
+                                                        </select>
+                                                    </td>
+
+                                                    {/* 4. Categoría */}
+                                                    <td className={styles.cellCategoria}>
+                                                        <select
+                                                            className={styles.selectStyle}
+                                                            value={item.Categoría}
+                                                            onChange={(e) => {
+                                                                handleFieldChange(index, "Categoría", e.target.value);
+                                                                handleFieldChange(index, "Subcategoría", "");
+                                                            }}
+                                                        >
+                                                            <option value="">- Categoría -</option>
+                                                            {options.categories.map((cat) => (
+                                                                <option key={cat} value={cat}>{cat}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+
+                                                    {/* 5. Subcategoría */}
+                                                    <td className={styles.cellSubcategoria}>
+                                                        <select
+                                                            className={styles.selectStyle}
+                                                            value={item.Subcategoría}
+                                                            onChange={(e) => handleFieldChange(index, "Subcategoría", e.target.value)}
+                                                            disabled={!item.Categoría}
+                                                        >
+                                                            <option value="">{item.Categoría ? "- Subcategoría -" : "- Elegí cat -"}</option>
+                                                            {options.subcategories.map((sub) => (
+                                                                <option key={sub} value={sub}>{sub}</option>
+                                                            ))}
+                                                        </select>
+                                                    </td>
+
+                                                    {/* 6. Comentario */}
+                                                    <td className={styles.cellComentario}>
+                                                        <input
+                                                            type="text"
+                                                            className={styles.inputStyle}
+                                                            placeholder="Descripción o producto..."
+                                                            value={item.Comentario}
+                                                            onChange={(e) => handleFieldChange(index, "Comentario", e.target.value)}
+                                                        />
+                                                    </td>
+
+                                                    {/* 7. Monto */}
+                                                    <td className={styles.cellMonto}>
+                                                        <div className={styles.montoWrapper}>
+                                                            <span className={styles.montoPrefix}>$</span>
+                                                            <input
+                                                                type="number"
+                                                                step="0.01"
+                                                                min="0"
+                                                                className={`${styles.inputStyle} ${styles.inputNum}`}
+                                                                placeholder="0,00"
+                                                                value={item.Monto}
+                                                                onChange={(e) => handleFieldChange(index, "Monto", e.target.value)}
+                                                            />
+                                                        </div>
+                                                    </td>
+
+                                                    {/* 8. Acciones (Eliminar) */}
+                                                    <td className={styles.cellActions}>
+                                                        <button
+                                                            type="button"
+                                                            className={styles.deleteRowBtn}
+                                                            onClick={() => handleRemoveItem(index)}
+                                                            title="Eliminar este ítem"
+                                                            aria-label={`Eliminar ítem ${index + 1}`}
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ) : (
+                        /* VIEW MODE 3: SINGLE QUICK FORM */
+                        <div className={styles.singleFormContainer}>
+                            {/* Segmented Toggle: Gasto / Ingreso / Ahorro / Inversión */}
+                            <div className={styles.typeToggleWrapper}>
+                                <div className={styles.segmentedControl}>
+                                    <button
+                                        type="button"
+                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Egreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveGasto}` : ""}`}
+                                        onClick={() => handleTypeChange(0, "Egreso")}
+                                    >
+                                        <span>Gasto</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Ingreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveIngreso}` : ""}`}
+                                        onClick={() => handleTypeChange(0, "Ingreso")}
+                                    >
+                                        <span>Ingreso</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Ahorro" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveAhorro}` : ""}`}
+                                        onClick={() => handleTypeChange(0, "Ahorro")}
+                                    >
+                                        <span>Ahorro</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Inversión" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveInversion}` : ""}`}
+                                        onClick={() => handleTypeChange(0, "Inversión")}
+                                    >
+                                        <span>Inversión</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Operación para Inversión: Compra / Aporte vs Venta / Rescate */}
+                            {singleItem.Tipo === "Inversión" && (
+                                <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setInvOperation("Compra")}
+                                        className={styles.invActionBtn}
+                                        style={{
+                                            border: invOperation === "Compra" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
+                                            background: invOperation === "Compra" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
+                                            color: invOperation === "Compra" ? "var(--text-main)" : "var(--text-muted)",
+                                            fontWeight: invOperation === "Compra" ? 700 : 500,
+                                        }}
+                                    >
+                                        🟢 Compra / Aporte (Salida)
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setInvOperation("Venta")}
+                                        className={styles.invActionBtn}
+                                        style={{
+                                            border: invOperation === "Venta" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
+                                            background: invOperation === "Venta" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
+                                            color: invOperation === "Venta" ? "var(--text-main)" : "var(--text-muted)",
+                                            fontWeight: invOperation === "Venta" ? 700 : 500,
+                                        }}
+                                    >
+                                        🔴 Venta / Rescate (Entrada)
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* MONTO Section con Selector ARS / USD (MEP) */}
+                            <div className={styles.sectionBlock}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                    <label className={styles.sectionLabel} htmlFor="trx-amount">
+                                        Monto
+                                    </label>
+                                    {currency === "USD" && mepRate && (
+                                        <span style={{ fontSize: "0.75rem", color: "#8b5cf6", fontWeight: 600 }}>
+                                            Dólar MEP: ${mepRate} · Equivalente: {fmt(parseSafeAmount(singleItem.Monto) * mepRate)}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className={styles.amountCard}>
+                                    <div 
+                                        className={styles.currencyBadge}
+                                        onClick={() => setCurrency(currency === "ARS" ? "USD" : "ARS")}
+                                        title="Cambiar divisa ARS / USD (conversión automática al Dólar MEP)"
+                                        style={{ cursor: "pointer", userSelect: "none" }}
+                                    >
+                                        <span>{currency}</span>
+                                        <span className={styles.currencyArrow}>▾</span>
+                                    </div>
+                                    <div className={styles.amountDivider} />
+                                    <div className={styles.amountInputWrapper}>
+                                        <span className={styles.amountPrefix}>{currency === "USD" ? "u$s" : "$"}</span>
+                                        <input
+                                            id="trx-amount"
+                                            type="number"
+                                            inputMode="decimal"
+                                            step="any"
+                                            min="0"
+                                            className={styles.amountInput}
+                                            placeholder="0,00"
+                                            value={singleItem.Monto}
+                                            onChange={(e) => handleFieldChange(0, "Monto", e.target.value)}
+                                            autoFocus
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Grid of Fields: Categoría & Subcategoría, Nota & Fecha */}
+                            <div className={styles.formGrid}>
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label} htmlFor="trx-category">Categoría</label>
+                                    <select
+                                        id="trx-category"
+                                        className={styles.selectStyle}
+                                        value={singleItem.Categoría}
+                                        onChange={(e) => {
+                                            handleFieldChange(0, "Categoría", e.target.value);
+                                            handleFieldChange(0, "Subcategoría", "");
+                                        }}
+                                    >
+                                        <option value="">Seleccionar</option>
+                                        {singleOptions.categories.map((cat) => (
+                                            <option key={cat} value={cat}>{cat}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label} htmlFor="trx-subcategory">Subcategoría</label>
+                                    <select
+                                        id="trx-subcategory"
+                                        className={styles.selectStyle}
+                                        value={singleItem.Subcategoría}
+                                        onChange={(e) => handleFieldChange(0, "Subcategoría", e.target.value)}
+                                        disabled={!singleItem.Categoría}
+                                    >
+                                        <option value="">
+                                            {singleItem.Categoría ? "Seleccionar" : "- Elige categoría -"}
+                                        </option>
+                                        {singleOptions.subcategories.map((subCat) => (
+                                            <option key={subCat} value={subCat}>{subCat}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label} htmlFor="trx-comment">Nota (Opcional)</label>
+                                    <input
+                                        id="trx-comment"
+                                        type="text"
+                                        className={styles.inputStyle}
+                                        placeholder='Ej: "Supermercado Coto" o "Aporte"'
+                                        value={singleItem.Comentario}
+                                        onChange={(e) => handleFieldChange(0, "Comentario", e.target.value)}
+                                    />
+                                </div>
+
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.label} htmlFor="trx-date">Fecha</label>
+                                    <div className={styles.dateWrapper}>
+                                        <span className={styles.dateIcon}>📅</span>
+                                        <input
+                                            id="trx-date"
+                                            type="date"
+                                            className={`${styles.inputStyle} ${styles.dateInput}`}
+                                            value={toIsoDate(singleItem.Fecha)}
+                                            onChange={(e) => handleFieldChange(0, "Fecha", fromIsoDate(e.target.value))}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     )}
                 </div>
 
                 {/* Error Banner */}
                 {errorMsg && (
-                    <div
-                        style={{
-                            background: "rgba(239, 68, 68, 0.15)",
-                            borderTop: "1px solid var(--danger-color)",
-                            padding: "12px 20px",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            fontSize: "0.85rem",
-                            color: "var(--text-main)"
-                        }}
-                    >
+                    <div className={styles.errorBanner}>
                         <span>⚠️ {errorMsg}</span>
                         <button
                             type="button"
                             onClick={() => setErrorMsg(null)}
-                            style={{
-                                background: "none",
-                                border: "none",
-                                color: "var(--text-muted)",
-                                cursor: "pointer",
-                                fontSize: "1rem"
-                            }}
+                            className={styles.errorDismissBtn}
                         >
                             ✕
                         </button>
                     </div>
                 )}
+
+                {/* Footer Bar */}
+                <div className={styles.footer}>
+                    <div className={styles.totalsGrid}>
+                        <div className={styles.totalItem}>
+                            <span className={styles.totalsLabel}>Total:</span>
+                            <span className={styles.totalsValue}>${calculateGlobalTotal()}</span>
+                        </div>
+                        <div className={styles.totalItem}>
+                            <span className={styles.totalsLabel} style={{ color: "var(--success-color)" }}>A guardar:</span>
+                            <span className={styles.totalsValue} style={{ color: "var(--success-color)" }}>${calculateConfirmedTotal()}</span>
+                        </div>
+                    </div>
+
+                    <div className={styles.actions}>
+                        {isInstalmentMode ? (
+                            <>
+                                <button
+                                    type="button"
+                                    className={styles.cancelBtn}
+                                    onClick={() => setIsInstalmentMode(false)}
+                                    disabled={isSaving}
+                                >
+                                    Volver
+                                </button>
+                                <button
+                                    type="button"
+                                    className={styles.saveBtn}
+                                    disabled={isSaving || !instalmentConcept || !instalmentsCount || !startMonth}
+                                    onClick={() => handleSave(true)}
+                                >
+                                    {isSaving ? "Guardando..." : "Confirmar Compra + Cuotas"}
+                                </button>
+                            </>
+                        ) : (
+                            <>
+                                <button
+                                    type="button"
+                                    className={styles.cancelBtn}
+                                    onClick={onClose}
+                                    disabled={isSaving}
+                                >
+                                    Cancelar
+                                </button>
+
+                                {hasConfirmedEgreso && (
+                                    <button
+                                        type="button"
+                                        className={styles.instalmentBtn}
+                                        onClick={handleEnableInstalmentMode}
+                                        disabled={isSaving || !someConfirmed}
+                                    >
+                                        💳 Pagar en Cuotas
+                                    </button>
+                                )}
+
+                                <button
+                                    type="button"
+                                    className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
+                                    disabled={!someConfirmed || isSaving || editableItems.length === 0}
+                                    onClick={() => handleSave(false)}
+                                >
+                                    {isSaving ? "Guardando..." : `Confirmar y Guardar (${confirmedCount})`}
+                                </button>
+                            </>
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
     );

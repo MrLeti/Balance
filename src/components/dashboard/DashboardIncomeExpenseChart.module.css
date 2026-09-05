@@ -1,0 +1,118 @@
+/* DashboardIncomeExpenseChart.module.css */
+
+.card {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-width: 0;
+    border-radius: 16px;
+}
+
+.colSpanFull {
+    grid-column: 1 / -1;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.headerTitle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.icon {
+    font-size: 1.4rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.05));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.1));
+}
+
+.title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-main, #0f172a);
+    letter-spacing: -0.01em;
+}
+
+.subtitle {
+    margin: 3px 0 0 0;
+    font-size: 0.85rem;
+    color: var(--text-muted, #64748b);
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.06));
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.12));
+    color: var(--text-muted, #64748b);
+}
+
+.chartContainer {
+    flex: 1;
+    min-height: 280px;
+    width: 100%;
+    position: relative;
+}
+
+.emptyState {
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 36px 20px;
+    border: 1px dashed var(--glass-border, rgba(255, 255, 255, 0.15));
+    border-radius: 12px;
+    background: var(--glass-bg, rgba(255, 255, 255, 0.02));
+}
+
+.emptyIcon {
+    font-size: 2.4rem;
+    margin-bottom: 12px;
+    opacity: 0.85;
+}
+
+.emptyTitle {
+    margin: 0 0 6px 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text-main, #0f172a);
+}
+
+.emptyDescription {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--text-muted, #64748b);
+    max-width: 440px;
+    line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+    .card {
+        padding: 16px;
+    }
+    .chartContainer {
+        min-height: 230px;
+    }
+}

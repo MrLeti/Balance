@@ -1,0 +1,239 @@
+/* ==========================================================================
+   AI ROTATING GLOW EFFECT - CSS MODULE SPECIFICATION
+   ========================================================================== */
+
+@keyframes rotateAura {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Outer component wrapper */
+.aiGlowOuter {
+    position: relative;
+    width: 100%;
+}
+
+/* Layer 1: Soft, intense rotating outer glow blur */
+.aiGlowBlur {
+    position: absolute;
+    inset: -3px;
+    border-radius: 20px;
+    overflow: hidden;
+    filter: blur(14px);
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.aiGlowBlur::before {
+    content: "";
+    position: absolute;
+    top: -260%;
+    left: -100%;
+    width: 300%;
+    height: 620%;
+    background: conic-gradient(
+        from 0deg,
+        #3b82f6,
+        #8b5cf6,
+        #ec4899,
+        #06b6d4,
+        #10b981,
+        #3b82f6
+    );
+    animation: rotateAura 5s linear infinite;
+    transform-origin: center center;
+}
+
+:root[data-theme="light"] .aiGlowBlur {
+    opacity: 0.42;
+    filter: blur(16px);
+}
+
+/* Layer 2: Rotating crisp glowing border */
+.aiPromptContainer {
+    position: relative;
+    border-radius: 18px;
+    overflow: hidden;
+    padding: 1.5px;
+    z-index: 2;
+    box-shadow: 0 4px 20px -2px rgba(139, 92, 246, 0.25);
+}
+
+.aiPromptContainer::before {
+    content: "";
+    position: absolute;
+    top: -260%;
+    left: -100%;
+    width: 300%;
+    height: 620%;
+    background: conic-gradient(
+        from 0deg,
+        #3b82f6,
+        #8b5cf6,
+        #ec4899,
+        #06b6d4,
+        #10b981,
+        #3b82f6
+    );
+    animation: rotateAura 5s linear infinite;
+    transform-origin: center center;
+}
+
+/* Layer 3: Solid Inner Card masking the gradient background */
+.aiPromptCard {
+    position: relative;
+    z-index: 3;
+    background: var(--surface-card, var(--bg-color, #13171a));
+    border-radius: 16.5px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    backdrop-filter: blur(16px);
+}
+
+.aiPromptHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.aiSparkleIcon {
+    font-size: 1.05rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.aiPromptTitle {
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: var(--text-main, #ffffff);
+    letter-spacing: -0.01em;
+}
+
+.aiPromptHint {
+    font-size: 0.78rem;
+    color: var(--text-muted, #94a3b8);
+    font-weight: 500;
+}
+
+.aiPromptInputRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.aiInputField {
+    flex: 1;
+    min-width: 0;
+    background: var(--input-bg, var(--glass-bg, rgba(255, 255, 255, 0.05)));
+    border: 1px solid var(--input-border, var(--glass-border, rgba(255, 255, 255, 0.1)));
+    border-radius: 12px;
+    padding: 10px 14px;
+    color: var(--text-main, #ffffff);
+    font-size: 0.92rem;
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.aiInputField::placeholder {
+    color: var(--text-muted, #94a3b8);
+    opacity: 0.75;
+    font-size: 0.88rem;
+}
+
+.aiInputField:focus {
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+}
+
+.aiInputField:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.aiAnalyzeBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    border: none;
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+    color: #ffffff;
+    font-size: 0.88rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.35);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
+    flex-shrink: 0;
+}
+
+.aiAnalyzeBtn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 18px rgba(139, 92, 246, 0.45);
+    filter: brightness(1.08);
+}
+
+.aiAnalyzeBtn:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.aiAnalyzeBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    box-shadow: none;
+}
+
+.spinIcon {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+}
+
+/* Mobile responsiveness */
+@media (max-width: 768px) {
+    .aiPromptCard {
+        padding: 12px 14px;
+        gap: 8px;
+    }
+
+    .aiPromptHint {
+        width: 100%;
+        font-size: 0.74rem;
+        line-height: 1.3;
+    }
+
+    .aiPromptInputRow {
+        gap: 8px;
+    }
+
+    .aiInputField {
+        font-size: 0.88rem;
+        padding: 9px 12px;
+    }
+
+    .aiAnalyzeBtn {
+        padding: 9px 14px;
+        font-size: 0.84rem;
+    }
+}

@@ -71,6 +71,61 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Custom date range inputs (Rango personalizado)
+--------------------------------------------------------------------------- */
+.customDateRange {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dateInputWrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dateInputLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.dateInput {
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: var(--bg-color);
+  color: var(--text-main);
+  padding: 0 12px;
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  font-family: inherit;
+}
+
+.dateInput:focus {
+  border-color: var(--accent-color, #0061a4);
+  box-shadow: 0 0 0 3px rgba(0, 97, 164, 0.15);
+}
+
+@media (max-width: 768px) {
+  .customDateRange {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .dateInputWrapper {
+    flex: 1;
+    min-width: 130px;
+  }
+  .dateInput {
+    width: 100%;
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Row count badge
 --------------------------------------------------------------------------- */
 .count {
@@ -339,4 +394,116 @@
   border-color: var(--accent-color);
   transform: translateY(-1px);
 }
+
+/* ---------------------------------------------------------------------------
+   Search match highlighting
+--------------------------------------------------------------------------- */
+.highlight {
+  background-color: rgba(245, 158, 11, 0.25);
+  color: inherit;
+  padding: 1px 3px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+:global([data-theme="dark"]) .highlight {
+  background-color: rgba(234, 179, 8, 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .highlight {
+    background-color: rgba(234, 179, 8, 0.35);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Immediate In-Situ Editor & Aesthetic Pill Action Badges
+--------------------------------------------------------------------------- */
+.inlineEditorContainer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  width: 100%;
+  min-width: 140px;
+}
+
+.editorInputWrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+.actionPills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  z-index: 5;
+}
+
+.pillSave,
+.pillCancel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 9999px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.15s ease,
+              box-shadow 0.15s ease;
+  user-select: none;
+  line-height: 1;
+  padding: 0;
+}
+
+.pillSave {
+  background: var(--success-color, #22c55e);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(34, 197, 94, 0.3);
+}
+
+.pillSave:hover,
+.pillSave:focus-visible {
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(34, 197, 94, 0.45);
+}
+
+.pillSave:active {
+  transform: scale(0.96);
+}
+
+.pillCancel {
+  background: var(--danger-color, #ef4444);
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(239, 68, 68, 0.3);
+}
+
+.pillCancel:hover,
+.pillCancel:focus-visible {
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(239, 68, 68, 0.45);
+}
+
+.pillCancel:active {
+  transform: scale(0.96);
+}
+
+@media (max-width: 768px) {
+  .pillSave,
+  .pillCancel {
+    min-width: 36px;
+    min-height: 36px;
+    width: 36px;
+    height: 36px;
+    font-size: 1.05rem;
+  }
+}
+
 

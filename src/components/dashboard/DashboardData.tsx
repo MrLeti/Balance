@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import styles from "./DashboardData.module.css";
 import {
     Chart as ChartJS,
@@ -12,17 +12,21 @@ import {
     PointElement,
     LineElement,
     Title,
-    Filler
+    Filler,
+    ScriptableContext
 } from 'chart.js';
 import { Pie, Line } from 'react-chartjs-2';
+import { createVerticalGradient } from "@/lib/utils/chartGradients";
 import SankeyChart from "./SankeyChart";
 import HealthMetrics from "./HealthMetrics";
 import IntelligenceAlerts from "./IntelligenceAlerts";
 import TransactionsList from "./TransactionsList";
+import DashboardIncomeExpenseChart from "./DashboardIncomeExpenseChart";
+import SubNavTabs, { DashboardTabKey } from "./SubNavTabs";
 import { CATEGORY_COLORS, CategoryItem } from "@/lib/constants";
 import ConfirmDialog from "@/components/layout/ConfirmDialog";
-import { detectSubscriptions, projectEndOfMonth, calculateVestaScore, Subscription } from "@/lib/utils/intelligence";
-import { fmt, parseSafeAmount, roundMoney } from "@/lib/utils/format";
+import { detectSubscriptions, projectEndOfMonth, calculateVestaScore, InstalmentPlan } from "@/lib/utils/intelligence";
+import { parseSafeAmount, roundMoney } from "@/lib/utils/format";
 import { parseStartMonth } from "@/lib/utils/cuotas";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler);
@@ -57,6 +61,41 @@ const SUBCATEGORY_EMOJIS: Record<string, string> = {
 };
 
 export default function DashboardData() {
+    const [activeTab, setActiveTab] = useState<DashboardTabKey>(() => {
+        if (typeof window !== "undefined") {
+            const params = new URLSearchParams(window.location.search);
+            const tab = params.get("tab");
+            if (tab === "dashboard" || tab === "analisis" || tab === "movimientos") {
+                return tab;
+            }
+        }
+        return "dashboard";
+    });
+
+    const handleTabChange = useCallback((newTab: DashboardTabKey) => {
+        setActiveTab(newTab);
+        if (typeof window !== "undefined") {
+            const url = new URL(window.location.href);
+            url.searchParams.set("tab", newTab);
+            window.history.replaceState(window.history.state, "", url.toString());
+        }
+    }, []);
+
+    useEffect(() => {
+        const handlePopState = () => {
+            const params = new URLSearchParams(window.location.search);
+            const tabParam = params.get("tab");
+            if (tabParam === "dashboard" || tabParam === "analisis" || tabParam === "movimientos") {
+                setActiveTab(tabParam);
+            } else {
+                setActiveTab("dashboard");
+            }
+        };
+
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
+    }, []);
+
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<(string | number)[][]>([]);
     const [fetchError, setFetchError] = useState<string | null>(null);
@@ -67,6 +106,11 @@ export default function DashboardData() {
     
     // Por defecto mostramos el mes actual corriente (MM/YYYY) para ver los datos más recientes de inmediato
     const [balanceMonth, setBalanceMonth] = useState<string>(() => {
+        const now = new Date();
+        return `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
+    });
+
+    const [analysisPeriod, setAnalysisPeriod] = useState<string>(() => {
         const now = new Date();
         return `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
     });
@@ -106,7 +150,7 @@ export default function DashboardData() {
     // ─── Métricas de salud financiera ────────────────────────────────────────────
     const [cuotasMesActual, setCuotasMesActual] = useState<number>(0);
     const [cuotasProximas, setCuotasProximas] = useState<number>(0);
-    const [instalmentsData, setInstalmentsData] = useState<any[]>([]);
+    const [instalmentsData, setInstalmentsData] = useState<InstalmentPlan[]>([]);
 
     // Fetch cuotas al montar — para calcular el compromiso mensual de cuotas y alertas
     useEffect(() => {
@@ -171,9 +215,12 @@ export default function DashboardData() {
         };
     }, []);
 
-    const isDark = typeof document !== 'undefined'
-        ? document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)
-        : false;
+    const isDark = useMemo(() => {
+        void themeTrigger;
+        return typeof document !== 'undefined'
+            ? document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches)
+            : false;
+    }, [themeTrigger]);
 
     const chartTextColor = isDark ? '#e2e8f0' : '#475569';
     const chartGridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
@@ -262,9 +309,15 @@ export default function DashboardData() {
     useEffect(() => {
         if (data.length > 0 && availableMonths.length > 0) {
             const hasDataForSelected = availableMonths.includes(balanceMonth);
-            if (!hasDataForSelected && balanceMonth !== "Total") {
-                const latestMonth = availableMonths.find(m => m.includes("/")) || availableMonths[0];
-                if (latestMonth) setBalanceMonth(latestMonth);
+            const hasDataForAnalysis = availableMonths.includes(analysisPeriod);
+            const latestMonth = availableMonths.find(m => m.includes("/")) || availableMonths[0];
+            if (latestMonth) {
+                if (!hasDataForSelected && balanceMonth !== "Total") {
+                    setBalanceMonth(latestMonth);
+                }
+                if (!hasDataForAnalysis && analysisPeriod !== "Total") {
+                    setAnalysisPeriod(latestMonth);
+                }
             }
         }
     }, [data, availableMonths]);
@@ -305,24 +358,32 @@ export default function DashboardData() {
         return { availableCompItems: Array.from(items).sort(), groupedCompItems: groupedArray, subCatToCatMap: map, itemTypeMap: types };
     }, [data]);
 
-    const filteredData = useMemo(() => {
-        if (balanceMonth === "Total") return data;
-        return data.filter(row => {
+    const filterByPeriod = useCallback((rows: (string | number)[][], period: string) => {
+        if (period === "Total") return rows;
+        return rows.filter(row => {
             if (row.length < 6) return false;
             const dateStr = row[1];
             if (typeof dateStr === 'string') {
                 const parts = dateStr.split("/");
                 if (parts.length >= 3) {
-                    if (balanceMonth.length === 4) {
-                        return parts[2] === balanceMonth; // Filtro por Año entero
+                    if (period.length === 4) {
+                        return parts[2] === period; // Filtro por Año entero
                     } else {
-                        return `${parts[1]}/${parts[2]}` === balanceMonth; // Filtro estricto mes/año
+                        return `${parts[1]}/${parts[2]}` === period; // Filtro estricto mes/año
                     }
                 }
             }
             return false;
         });
-    }, [data, balanceMonth]);
+    }, []);
+
+    const filteredData = useMemo(() => {
+        return filterByPeriod(data, balanceMonth);
+    }, [data, balanceMonth, filterByPeriod]);
+
+    const analysisFilteredData = useMemo(() => {
+        return filterByPeriod(data, analysisPeriod);
+    }, [data, analysisPeriod, filterByPeriod]);
 
     const { balance, ingresos, egresos, inversiones, ahorros } = useMemo(() => {
         let b = 0; let i = 0; let e = 0; let inv = 0; let a = 0;
@@ -369,6 +430,49 @@ export default function DashboardData() {
         };
     }, [filteredData]);
 
+    const {
+        balance: analysisBalance,
+        ingresos: analysisIngresos,
+        egresos: analysisEgresos
+    } = useMemo(() => {
+        let b = 0; let i = 0; let e = 0;
+        analysisFilteredData.forEach(row => {
+            if (row.length < 6) return;
+            const type = row[2];
+            const val = parseSafeAmount(row[5]);
+            const comment = String(row[6] || "").toLowerCase();
+            const subCat = String(row[4] || "").toLowerCase();
+            const category = String(row[3] || "").toLowerCase();
+            const isVenta = comment.includes("venta") || subCat.includes("rescate");
+
+            if (type === "Ingreso") {
+                i += val;
+                b += val;
+            } else if (type === "Egreso") {
+                e += val;
+                b -= val;
+            } else if (type === "Ahorro") {
+                const isRetiro = category.includes("retiro") || val < 0;
+                if (isRetiro) {
+                    b += Math.abs(val);
+                } else {
+                    b -= Math.abs(val);
+                }
+            } else if (type === "Inversión") {
+                if (isVenta) {
+                    b += val;
+                } else {
+                    b -= val;
+                }
+            }
+        });
+        return {
+            balance: roundMoney(b),
+            ingresos: roundMoney(i),
+            egresos: roundMoney(e)
+        };
+    }, [analysisFilteredData]);
+
     const subscriptions = useMemo(() => detectSubscriptions(data), [data]);
     const cashflowProjection = useMemo(() => projectEndOfMonth(egresos, balanceMonth), [egresos, balanceMonth]);
     const vestaScore = useMemo(() => {
@@ -379,7 +483,7 @@ export default function DashboardData() {
 
     const pieData = useMemo(() => {
         const itemTotals: Record<string, number> = {};
-        filteredData.forEach(row => {
+        analysisFilteredData.forEach(row => {
             if (row.length < 6) return;
             const type = row[2];
             if (type !== pieFilter) return;
@@ -408,7 +512,7 @@ export default function DashboardData() {
                 borderWidth: 2,
             }]
         };
-    }, [filteredData, pieFilter, selectedCategory, isDark, dynamicColorMap]);
+    }, [analysisFilteredData, pieFilter, selectedCategory, isDark, dynamicColorMap]);
 
     const lineData = useMemo(() => {
         const dailyData: Record<string, { ingreso: number, egreso: number, balanceDay: number, categories: Record<string, number> }> = {};
@@ -418,9 +522,9 @@ export default function DashboardData() {
         const catColors = ['#5E82D5', '#E0726B', '#7BBD9F', '#F1AD5C', '#8B5CF6', '#10B981', '#EC4899'];
         const allCategoriesEncountered = new Set<string>();
 
-        const isMonthlyAggregated = balanceMonth === "Total" || balanceMonth.length === 4;
+        const isMonthlyAggregated = analysisPeriod === "Total" || analysisPeriod.length === 4;
 
-        filteredData.forEach(row => {
+        analysisFilteredData.forEach(row => {
             if (row.length < 6) return;
             const rawDateStr = String(row[1]);
             const dateParts = rawDateStr.split("/");
@@ -457,25 +561,38 @@ export default function DashboardData() {
                 label: "Ingresos",
                 data: labels.map(l => dailyData[l].ingreso),
                 borderColor: '#22c55e',
-                backgroundColor: '#22c55e',
+                backgroundColor: (context: ScriptableContext<'line'>) => {
+                    const { ctx, chartArea } = context.chart;
+                    return createVerticalGradient(ctx, chartArea, '#22c55e', isDark);
+                },
+                fill: true,
                 tension: 0.3
             });
             datasets.push({
                 label: "Egresos Totales",
                 data: labels.map(l => dailyData[l].egreso),
                 borderColor: '#ef4444',
-                backgroundColor: '#ef4444',
+                backgroundColor: (context: ScriptableContext<'line'>) => {
+                    const { ctx, chartArea } = context.chart;
+                    return createVerticalGradient(ctx, chartArea, '#ef4444', isDark);
+                },
+                fill: true,
                 tension: 0.3
             });
         } else if (lineFilter === "Categorias") {
             // Create a dataset for each category found
             Array.from(allCategoriesEncountered).forEach((cat, idx) => {
                 const color = dynamicColorMap[cat] || catColors[idx % catColors.length];
+                const validHex = color && color.startsWith('#') ? color : '#3b82f6';
                 datasets.push({
                     label: cat,
                     data: labels.map(l => dailyData[l].categories[cat] || 0),
-                    borderColor: color,
-                    backgroundColor: color,
+                    borderColor: validHex,
+                    backgroundColor: (context: ScriptableContext<'line'>) => {
+                        const { ctx, chartArea } = context.chart;
+                        return createVerticalGradient(ctx, chartArea, validHex, isDark, 0.22);
+                    },
+                    fill: true,
                     tension: 0.3
                 });
             });
@@ -484,20 +601,23 @@ export default function DashboardData() {
                 label: "Balance Acumulado",
                 data: labels.map(l => dailyData[l].balanceDay),
                 borderColor: '#3b82f6',
-                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                backgroundColor: (context: ScriptableContext<'line'>) => {
+                    const { ctx, chartArea } = context.chart;
+                    return createVerticalGradient(ctx, chartArea, '#3b82f6', isDark, 0.35);
+                },
                 tension: 0.3,
                 fill: true,
             });
         }
 
         return { labels, datasets };
-    }, [filteredData, lineFilter, dynamicColorMap]);
+    }, [analysisFilteredData, lineFilter, dynamicColorMap, analysisPeriod, isDark]);
 
     const compLineData = useMemo(() => {
         const dailyData: Record<string, { a: number, b: number }> = {};
-        const isMonthlyAggregated = balanceMonth === "Total" || balanceMonth.length === 4;
+        const isMonthlyAggregated = analysisPeriod === "Total" || analysisPeriod.length === 4;
 
-        filteredData.forEach(row => {
+        analysisFilteredData.forEach(row => {
             if (row.length < 6) return;
             const rawDateStr = String(row[1]);
             const dateParts = rawDateStr.split("/");
@@ -526,43 +646,39 @@ export default function DashboardData() {
             return fallbackColor;
         };
 
-        const color1 = getColor(compItem1, '#8b5cf6');
-        const color2 = getColor(compItem2, '#ec4899');
+        const rawColor1 = getColor(compItem1, '#8b5cf6');
+        const rawColor2 = getColor(compItem2, '#ec4899');
+        const color1 = rawColor1 && rawColor1.startsWith('#') ? rawColor1 : '#8b5cf6';
+        const color2 = rawColor2 && rawColor2.startsWith('#') ? rawColor2 : '#ec4899';
 
         const datasets = [
             {
                 label: compItem1,
                 data: labels.map(l => dailyData[l].a),
                 borderColor: color1,
-                backgroundColor: color1,
+                backgroundColor: (context: ScriptableContext<'line'>) => {
+                    const { ctx, chartArea } = context.chart;
+                    return createVerticalGradient(ctx, chartArea, color1, isDark);
+                },
+                fill: true,
                 tension: 0.3
             },
             {
                 label: compItem2,
                 data: labels.map(l => dailyData[l].b),
                 borderColor: color2,
-                backgroundColor: color2,
+                backgroundColor: (context: ScriptableContext<'line'>) => {
+                    const { ctx, chartArea } = context.chart;
+                    return createVerticalGradient(ctx, chartArea, color2, isDark);
+                },
+                fill: true,
                 tension: 0.3
             }
         ];
 
         return { labels, datasets };
-    }, [filteredData, compItem1, compItem2, balanceMonth, subCatToCatMap, itemTypeMap]);
+    }, [analysisFilteredData, compItem1, compItem2, analysisPeriod, subCatToCatMap, itemTypeMap, dynamicColorMap, isDark]);
 
-    const recentTx = useMemo(() => {
-        let results = [...filteredData].reverse();
-        if (searchTerm.trim()) {
-            const term = searchTerm.toLowerCase();
-            results = results.filter(row => {
-                // Buscar en: fecha(1), tipo(2), categoría(3), subcategoría(4), monto(5), comentario(6)
-                for (let i = 1; i <= 6 && i < row.length; i++) {
-                    if (String(row[i]).toLowerCase().includes(term)) return true;
-                }
-                return false;
-            });
-        }
-        return results.slice(0, txLimit);
-    }, [filteredData, txLimit, searchTerm]);
 
     const handleDelete = (tx: (string | number)[]) => {
         setDialogPending(tx);
@@ -607,31 +723,37 @@ export default function DashboardData() {
 
     if (loading) {
         return (
-            <div className={styles.loadingArea}>
-                <div className={styles.skeletonCard}></div>
-                <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
-                <div className={styles.skeletonCard}></div>
-                <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
-            </div>
+            <>
+                <SubNavTabs activeTab={activeTab} onTabChange={handleTabChange} />
+                <div className={styles.loadingArea}>
+                    <div className={styles.skeletonCard}></div>
+                    <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
+                    <div className={styles.skeletonCard}></div>
+                    <div className={styles.skeletonCard} style={{ gridColumn: "span 2" }}></div>
+                </div>
+            </>
         );
     }
 
     if (fetchError) {
         return (
-            <div className={`glass-panel ${styles.card} ${styles.colSpanFull}`} style={{ textAlign: 'center', padding: '60px 24px' }}>
-                <p style={{ fontSize: '2rem', marginBottom: '16px' }}>⚠️</p>
-                <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>No se pudieron cargar los datos</h3>
-                <p className="text-muted" style={{ marginBottom: '24px' }}>{fetchError}</p>
-                <button
-                    onClick={() => { setLoading(true); setFetchError(null); fetchData(); }}
-                    style={{
-                        background: 'var(--accent-color)', color: '#fff', border: 'none',
-                        padding: '10px 28px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer'
-                    }}
-                >
-                    Reintentar
-                </button>
-            </div>
+            <>
+                <SubNavTabs activeTab={activeTab} onTabChange={handleTabChange} />
+                <div className={`glass-panel ${styles.card} ${styles.colSpanFull}`} style={{ textAlign: 'center', padding: '60px 24px' }}>
+                    <p style={{ fontSize: '2rem', marginBottom: '16px' }}>⚠️</p>
+                    <h3 style={{ color: 'var(--text-main)', marginBottom: '8px' }}>No se pudieron cargar los datos</h3>
+                    <p className="text-muted" style={{ marginBottom: '24px' }}>{fetchError}</p>
+                    <button
+                        onClick={() => { setLoading(true); setFetchError(null); fetchData(); }}
+                        style={{
+                            background: 'var(--accent-color)', color: '#fff', border: 'none',
+                            padding: '10px 28px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer'
+                        }}
+                    >
+                        Reintentar
+                    </button>
+                </div>
+            </>
         );
     }
 
@@ -642,6 +764,8 @@ export default function DashboardData() {
 
     return (
         <>
+            <SubNavTabs activeTab={activeTab} onTabChange={handleTabChange} />
+
             {/* Diálogo de confirmación de borrado — reemplaza window.confirm() */}
             <ConfirmDialog
                 isOpen={!!dialogPending}
@@ -656,254 +780,308 @@ export default function DashboardData() {
                 onCancel={() => setDialogPending(null)}
             />
 
+            {/* ─── Vista 1: Dashboard ─── */}
+            {activeTab === "dashboard" && (
+                <div
+                    role="tabpanel"
+                    id="tabpanel-dashboard"
+                    aria-labelledby="tab-dashboard"
+                    style={{ display: "contents" }}
+                >
+                    <HealthMetrics 
+                        balanceMonth={balanceMonth}
+                        setBalanceMonth={setBalanceMonth}
+                        availableMonths={availableMonths}
+                        ingresos={ingresos} 
+                        egresos={egresos} 
+                        balance={balance} 
+                        inversiones={inversiones}
+                        ahorros={ahorros}
+                        cuotasMesActual={cuotasMesActual} 
+                        vestaScore={vestaScore} 
+                        data={data}
+                    />
 
-            <HealthMetrics 
-                balanceMonth={balanceMonth}
-                setBalanceMonth={setBalanceMonth}
-                availableMonths={availableMonths}
-                ingresos={ingresos} 
-                egresos={egresos} 
-                balance={balance} 
-                inversiones={inversiones}
-                ahorros={ahorros}
-                cuotasMesActual={cuotasMesActual} 
-                vestaScore={vestaScore} 
-                data={data}
-            />
+                    <IntelligenceAlerts 
+                        cashflowProjection={cashflowProjection} 
+                        subscriptions={subscriptions} 
+                        cuotasProximas={cuotasProximas} 
+                        availableMonths={availableMonths} 
+                        data={data} 
+                        balanceMonth={balanceMonth}
+                        balance={balance}
+                        ingresos={ingresos}
+                        egresos={egresos}
+                        instalmentsData={instalmentsData}
+                    />
 
-            <IntelligenceAlerts 
-                cashflowProjection={cashflowProjection} 
-                subscriptions={subscriptions} 
-                cuotasProximas={cuotasProximas} 
-                availableMonths={availableMonths} 
-                data={data} 
-                balanceMonth={balanceMonth}
-                balance={balance}
-                ingresos={ingresos}
-                egresos={egresos}
-                instalmentsData={instalmentsData}
-            />
-
-            {/* Gráfico Torta */}
-            <section className={`glass-panel ${styles.card}`}>
-                <div className={styles.headerWithTabs}>
-                    <h3 className="text-muted">Desglose {selectedCategory ? `> ${selectedCategory}` : ""}</h3>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                        {selectedCategory && (
-                            <button
-                                className={styles.backBtn}
-                                onClick={() => setSelectedCategory(null)}
-                            >
-                                🔙 Volver
-                            </button>
-                        )}
-                        <select
-                            className={styles.miniSelect}
-                            value={pieFilter}
-                            onChange={e => {
-                                setPieFilter(e.target.value as "Egreso" | "Ingreso");
-                                setSelectedCategory(null);
-                            }}
-                        >
-                            <option value="Egreso">Egresos</option>
-                            <option value="Ingreso">Ingresos</option>
-                        </select>
-                    </div>
+                    <DashboardIncomeExpenseChart 
+                        data={data}
+                        filteredData={filteredData}
+                        balanceMonth={balanceMonth}
+                        isDark={isDark}
+                    />
                 </div>
-                <div className={styles.chartArea}>
-                    {pieData.labels.length > 0 ? (
-                        <Pie
-                            data={pieData}
-                            options={{
-                                onClick: (event, elements) => {
-                                    if (elements.length > 0 && !selectedCategory) {
-                                        const index = elements[0].index;
-                                        setSelectedCategory(pieData.labels[index] as string);
-                                    }
-                                },
-                                plugins: {
-                                    legend: { position: 'bottom', labels: { color: chartTextColor } },
-                                    tooltip: {
-                                        callbacks: {
-                                            label: (context) => {
-                                                const label = context.label || '';
-                                                const value = context.parsed || 0;
-                                                const dataArray = context.dataset.data as number[];
-                                                const total = dataArray.reduce((acc, curr) => acc + curr, 0);
-                                                const percentage = total > 0 ? ((value * 100) / total).toFixed(1) : "0";
-                                                return `${label}: ${fmt(value)} (${percentage}%)`;
-                                            }
-                                        }
-                                    }
-                                },
-                                cutout: '40%',
-                                maintainAspectRatio: false,
-                            }}
-                        />
-                    ) : (
-                        <p className="text-muted">No hay registros de {pieFilter.toLowerCase()}.</p>
-                    )}
-                </div>
-            </section>
+            )}
 
-            {/* Columna Derecha (Filtro + Balance) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                {/* Caja de Filtro de Período */}
-                <section className="glass-panel" style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '16px' }}>
-                    <h3 className="text-muted" style={{ margin: 0, fontSize: '1rem' }}>Filtro de Período</h3>
-                    <select
-                        className={styles.miniSelect}
-                        value={balanceMonth}
-                        onChange={e => setBalanceMonth(e.target.value)}
-                        style={{ fontSize: '0.95rem', padding: '6px 12px', minWidth: '130px' }}
+            {/* ─── Vista 2: Análisis ─── */}
+            {activeTab === "analisis" && (
+                <div
+                    role="tabpanel"
+                    id="tabpanel-analisis"
+                    aria-labelledby="tab-analisis"
+                    style={{ display: "contents" }}
+                >
+                    {/* Header con Selector de Período Independiente */}
+                    <section
+                        className={`glass-panel ${styles.colSpanFull} ${styles.analysisHeader}`}
+                        data-testid="analysis-header"
                     >
-                        <option value="Total">Histórico Completo</option>
-                        {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                </section>
-
-                {/* Tarjeta de Balance Total */}
-                <section className={`glass-panel ${styles.card}`} style={{ flex: 1 }}>
-                    <div style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '16px' }}>
-                        <h3 className="text-muted" style={{ margin: 0 }}>Balance General</h3>
-                    </div>
-
-                    <div className={styles.balanceSummary}>
-                        <div className={styles.summaryRow}>
-                            <span>Ingresos</span>
-                            <span className={styles.successText}>{fmt(ingresos)}</span>
+                        <div className={styles.analysisHeaderLeft}>
+                            <h2 className={styles.analysisTitle}>Análisis Financiero</h2>
+                            <p className={styles.analysisSubtitle}>
+                                {analysisPeriod === 'Total'
+                                    ? 'Visión histórica consolidada'
+                                    : analysisPeriod.length === 4
+                                        ? `Año ${analysisPeriod}`
+                                        : `Resumen del período · ${analysisPeriod}`}
+                            </p>
                         </div>
-                        <div className={styles.summaryRow}>
-                            <span>Egresos</span>
-                            <span className={styles.dangerText}>-{fmt(egresos)}</span>
+                        <div className={styles.analysisPeriodControl}>
+                            <label htmlFor="analysis-period-select" className={styles.analysisPeriodLabel}>
+                                Filtro de Período
+                            </label>
+                            <select
+                                id="analysis-period-select"
+                                aria-label="Filtro de Período"
+                                data-testid="analysis-period-select"
+                                className={styles.miniSelect}
+                                value={analysisPeriod}
+                                onChange={e => setAnalysisPeriod(e.target.value)}
+                                style={{ fontSize: '0.95rem', padding: '6px 14px', minWidth: '150px' }}
+                            >
+                                <option value="Total">Histórico Completo</option>
+                                {availableMonths.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
                         </div>
-                        <div className={`${styles.summaryRow} ${styles.totalRow}`}>
-                            <span>Balance</span>
-                            <span style={{ color: balance >= 0 ? "var(--success-color)" : "var(--danger-color)" }}>
-                                {fmt(balance)}
-                            </span>
+                    </section>
+
+                    {/* 1. Desglose */}
+                    <section className={`glass-panel ${styles.card}`} data-testid="card-desglose">
+                        <div className={styles.headerWithTabs}>
+                            <h3 className="text-muted">Desglose {selectedCategory ? `> ${selectedCategory}` : ""}</h3>
+                            <div style={{ display: "flex", gap: "8px" }}>
+                                {selectedCategory && (
+                                    <button
+                                        className={styles.backBtn}
+                                        onClick={() => setSelectedCategory(null)}
+                                        aria-label="Volver a categorías principales"
+                                    >
+                                        🔙 Volver
+                                    </button>
+                                )}
+                                <select
+                                    className={styles.miniSelect}
+                                    value={pieFilter}
+                                    onChange={e => {
+                                        setPieFilter(e.target.value as "Egreso" | "Ingreso");
+                                        setSelectedCategory(null);
+                                    }}
+                                    aria-label="Tipo de desglose"
+                                >
+                                    <option value="Egreso">Egresos</option>
+                                    <option value="Ingreso">Ingresos</option>
+                                </select>
+                            </div>
                         </div>
-                    </div>
-                </section>
-            </div>
+                        <div className={styles.chartArea}>
+                            {pieData.labels.length > 0 ? (
+                                <Pie
+                                    data={pieData}
+                                    options={{
+                                        onClick: (event, elements) => {
+                                            if (elements.length > 0 && !selectedCategory) {
+                                                const index = elements[0].index;
+                                                setSelectedCategory(pieData.labels[index] as string);
+                                            }
+                                        },
+                                        plugins: {
+                                            legend: { position: 'bottom', labels: { color: chartTextColor } },
+                                            tooltip: {
+                                                callbacks: {
+                                                    label: (context) => {
+                                                        const label = context.label || '';
+                                                        const value = context.parsed || 0;
+                                                        const dataArray = context.dataset.data as number[];
+                                                        const total = dataArray.reduce((acc, curr) => acc + curr, 0);
+                                                        const percentage = total > 0 ? ((value * 100) / total).toFixed(1) : "0";
+                                                        return `${label}: ${fmt(value)} (${percentage}%)`;
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        cutout: '40%',
+                                        maintainAspectRatio: false,
+                                    }}
+                                />
+                            ) : (
+                                <p className="text-muted">No hay registros de {pieFilter.toLowerCase()}.</p>
+                            )}
+                        </div>
+                    </section>
 
-            {/* Evolución Cashflow - Sankey */}
-            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
-                <div className={styles.headerWithTabs}>
-                    <h3 className="text-muted">Flujo de Dinero (Cashflow)</h3>
-                </div>
-                <SankeyChart data={filteredData} isDark={isDark} />
-            </section>
+                    {/* 2. Balance General */}
+                    <section className={`glass-panel ${styles.card}`} data-testid="card-balance-general">
+                        <div style={{ borderBottom: '1px solid var(--glass-border)', paddingBottom: '16px', marginBottom: '16px' }}>
+                            <h3 className="text-muted" style={{ margin: 0 }}>Balance General</h3>
+                        </div>
 
-            {/* Evolución Histórica (Líneas) */}
-            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
-                <div className={styles.headerWithTabs}>
-                    <h3 className="text-muted">Evolución en el Tiempo</h3>
-                    <div className={styles.tabs}>
-                        <button
-                            className={`${styles.tabBtn} ${lineFilter === "Comparativo" ? styles.activeTab : ""}`}
-                            onClick={() => setLineFilter("Comparativo")}
-                        >
-                            Comparativo G/I
-                        </button>
-                        <button
-                            className={`${styles.tabBtn} ${lineFilter === "Categorias" ? styles.activeTab : ""}`}
-                            onClick={() => setLineFilter("Categorias")}
-                        >
-                            Egresos/Cat
-                        </button>
-                        <button
-                            className={`${styles.tabBtn} ${lineFilter === "Balance" ? styles.activeTab : ""}`}
-                            onClick={() => setLineFilter("Balance")}
-                        >
-                            Acumulado
-                        </button>
-                    </div>
-                </div>
-                <div className={styles.lineChartArea}>
-                    {lineData.labels.length > 0 ? (
-                        <Line
-                            data={lineData}
-                            options={{
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { position: 'bottom', labels: { color: chartTextColor } }
-                                },
-                                scales: {
-                                    x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
-                                    y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
-                                }
-                            }}
-                        />
-                    ) : (
-                        <p className="text-muted">No hay datos suficientes.</p>
-                    )}
-                </div>
-            </section>
+                        <div className={styles.balanceSummary}>
+                            <div className={styles.summaryRow}>
+                                <span>Ingresos</span>
+                                <span className={styles.successText}>{fmt(analysisIngresos)}</span>
+                            </div>
+                            <div className={styles.summaryRow}>
+                                <span>Egresos</span>
+                                <span className={styles.dangerText}>-{fmt(analysisEgresos)}</span>
+                            </div>
+                            <div className={`${styles.summaryRow} ${styles.totalRow}`}>
+                                <span>Balance</span>
+                                <span style={{ color: analysisBalance >= 0 ? "var(--success-color)" : "var(--danger-color)" }}>
+                                    {fmt(analysisBalance)}
+                                </span>
+                            </div>
+                        </div>
+                    </section>
 
-            {/* Comparación Personalizada */}
-            <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>
-                <div className={styles.headerWithTabs}>
-                    <h3 className="text-muted">Comparativa Personalizada</h3>
-                    <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                        <select
-                            className={styles.miniSelect}
-                            value={compItem1}
-                            onChange={(e) => setCompItem1(e.target.value)}
-                        >
-                            {groupedCompItems.map(group => (
-                                <optgroup key={`g1-${group.category}`} label={`📁 ${group.category}`}>
-                                    <option value={group.category}>Toda la categoría</option>
-                                    {group.subCategories.map(sub => (
-                                        <option key={`s1-${sub}`} value={sub}>↳ {sub}</option>
+                    {/* 3. Flujo de Dinero (Cashflow - Sankey) */}
+                    <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`} data-testid="card-flujo-dinero">
+                        <div className={styles.headerWithTabs}>
+                            <h3 className="text-muted">Flujo de Dinero (Cashflow)</h3>
+                        </div>
+                        <SankeyChart data={analysisFilteredData} isDark={isDark} />
+                    </section>
+
+                    {/* 4. Evolución en el Tiempo (Líneas con degradado) */}
+                    <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`} data-testid="card-evolucion">
+                        <div className={styles.headerWithTabs}>
+                            <h3 className="text-muted">Evolución en el Tiempo</h3>
+                            <div className={styles.tabs}>
+                                <button
+                                    className={`${styles.tabBtn} ${lineFilter === "Comparativo" ? styles.activeTab : ""}`}
+                                    onClick={() => setLineFilter("Comparativo")}
+                                >
+                                    Comparativo G/I
+                                </button>
+                                <button
+                                    className={`${styles.tabBtn} ${lineFilter === "Categorias" ? styles.activeTab : ""}`}
+                                    onClick={() => setLineFilter("Categorias")}
+                                >
+                                    Egresos/Cat
+                                </button>
+                                <button
+                                    className={`${styles.tabBtn} ${lineFilter === "Balance" ? styles.activeTab : ""}`}
+                                    onClick={() => setLineFilter("Balance")}
+                                >
+                                    Acumulado
+                                </button>
+                            </div>
+                        </div>
+                        <div className={styles.lineChartArea}>
+                            {lineData.labels.length > 0 ? (
+                                <Line
+                                    data={lineData}
+                                    options={{
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: { position: 'bottom', labels: { color: chartTextColor } }
+                                        },
+                                        scales: {
+                                            x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
+                                            y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <p className="text-muted">No hay datos suficientes.</p>
+                            )}
+                        </div>
+                    </section>
+
+                    {/* 5. Comparativa Personalizada (Líneas con degradado) */}
+                    <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`} data-testid="card-comparativa">
+                        <div className={styles.headerWithTabs}>
+                            <h3 className="text-muted">Comparativa Personalizada</h3>
+                            <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                                <select
+                                    className={styles.miniSelect}
+                                    value={compItem1}
+                                    onChange={(e) => setCompItem1(e.target.value)}
+                                    aria-label="Primer ítem de comparación"
+                                >
+                                    {groupedCompItems.map(group => (
+                                        <optgroup key={`g1-${group.category}`} label={`📁 ${group.category}`}>
+                                            <option value={group.category}>Toda la categoría</option>
+                                            {group.subCategories.map(sub => (
+                                                <option key={`s1-${sub}`} value={sub}>↳ {sub}</option>
+                                            ))}
+                                        </optgroup>
                                     ))}
-                                </optgroup>
-                            ))}
-                        </select>
-                        <span className="text-muted" style={{ fontWeight: 'bold' }}>vs</span>
-                        <select
-                            className={styles.miniSelect}
-                            value={compItem2}
-                            onChange={(e) => setCompItem2(e.target.value)}
-                        >
-                            {groupedCompItems.map(group => (
-                                <optgroup key={`g2-${group.category}`} label={`📁 ${group.category}`}>
-                                    <option value={group.category}>Toda la categoría</option>
-                                    {group.subCategories.map(sub => (
-                                        <option key={`s2-${sub}`} value={sub}>↳ {sub}</option>
+                                </select>
+                                <span className="text-muted" style={{ fontWeight: 'bold' }}>vs</span>
+                                <select
+                                    className={styles.miniSelect}
+                                    value={compItem2}
+                                    onChange={(e) => setCompItem2(e.target.value)}
+                                    aria-label="Segundo ítem de comparación"
+                                >
+                                    {groupedCompItems.map(group => (
+                                        <optgroup key={`g2-${group.category}`} label={`📁 ${group.category}`}>
+                                            <option value={group.category}>Toda la categoría</option>
+                                            {group.subCategories.map(sub => (
+                                                <option key={`s2-${sub}`} value={sub}>↳ {sub}</option>
+                                            ))}
+                                        </optgroup>
                                     ))}
-                                </optgroup>
-                            ))}
-                        </select>
-                    </div>
+                                </select>
+                            </div>
+                        </div>
+                        <div className={styles.lineChartArea}>
+                            {compLineData.labels.length > 0 ? (
+                                <Line
+                                    data={compLineData}
+                                    options={{
+                                        responsive: true,
+                                        maintainAspectRatio: false,
+                                        plugins: {
+                                            legend: { position: 'bottom', labels: { color: chartTextColor } }
+                                        },
+                                        scales: {
+                                            x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
+                                            y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <p className="text-muted text-center" style={{ marginTop: '20px' }}>No hay datos suficientes para comparar en este período.</p>
+                            )}
+                        </div>
+                    </section>
                 </div>
-                <div className={styles.lineChartArea}>
-                    {compLineData.labels.length > 0 ? (
-                        <Line
-                            data={compLineData}
-                            options={{
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                    legend: { position: 'bottom', labels: { color: chartTextColor } }
-                                },
-                                scales: {
-                                    x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
-                                    y: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } }
-                                }
-                            }}
-                        />
-                    ) : (
-                        <p className="text-muted text-center" style={{ marginTop: '20px' }}>No hay datos suficientes para comparar en este período.</p>
-                    )}
-                </div>
-            </section>
+            )}
 
-            {/* Movimientos List */}
+    {/* ─── Vista 3: Movimientos ─── */}
+    {activeTab === "movimientos" && (
+        <div
+            role="tabpanel"
+            id="tabpanel-movimientos"
+            aria-labelledby="tab-movimientos"
+            style={{ display: "contents" }}
+        >
             <TransactionsList 
-                transactions={recentTx} 
-                totalCount={filteredData.length} 
+                transactions={data} 
+                totalCount={data.length} 
                 searchTerm={searchTerm} 
                 setSearchTerm={setSearchTerm} 
                 txLimit={txLimit} 
@@ -911,7 +1089,9 @@ export default function DashboardData() {
                 onDelete={handleDelete}
                 onEdit={handleEditTransaction}
             />
-        </>
+        </div>
+    )}
+</>
     );
 }
 

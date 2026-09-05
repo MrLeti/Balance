@@ -2,7 +2,6 @@ import React, { useState, useMemo, useRef } from 'react';
 import styles from './EditableTable.module.css';
 import { parseArithmeticExpression } from '@/lib/utils/format';
 
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -22,6 +21,8 @@ export interface FilterDef {
   key: string;
   label: string;
   options: { value: string; label: string }[];
+  matchMode?: 'exact' | 'contains' | 'month';
+  filterFn?: (rowValue: unknown, filterValue: string, row: Record<string, unknown>) => boolean;
 }
 
 export interface EditableTableProps {
@@ -31,13 +32,19 @@ export interface EditableTableProps {
   onDelete?: (id: string) => void;
   idField?: string;
   searchable?: boolean;
+  searchTerm?: string;
+  onSearchChange?: (term: string) => void;
   filters?: FilterDef[];
+  activeFilters?: Record<string, string>;
+  onFilterChange?: (key: string, value: string) => void;
   defaultSortKey?: string;
   defaultSortDir?: 'asc' | 'desc';
   emptyMessage?: string;
   isLoading?: boolean;
   initialLimit?: number;
   loadMoreLabel?: string;
+  collapseLabel?: string;
+  onLimitChange?: (limit: number | null) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +70,91 @@ function htmldate_to_ddmmyyyy(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Highlighting helpers
+// ---------------------------------------------------------------------------
+
+export function highlightMatches(text: string, query: string): React.ReactNode {
+  if (!query || !query.trim() || !text) return text;
+  const q = query.trim();
+  if (text.trim().toLowerCase() === q.toLowerCase()) {
+    return <mark className={styles.highlight}>{text}</mark>;
+  }
+  const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = text.split(regex);
+  if (parts.length <= 1) return text;
+  return (
+    <>
+      <span
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          padding: 0,
+          margin: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      >
+        {text}
+      </span>
+      <span aria-hidden="true">
+        {parts.map((part, i) => {
+          if (part.toLowerCase() === q.toLowerCase()) {
+            return (
+              <mark key={i} className={styles.highlight}>
+                {part}
+              </mark>
+            );
+          }
+          return part;
+        })}
+      </span>
+    </>
+  );
+}
+
+export function highlightNode(node: React.ReactNode, query: string): React.ReactNode {
+  if (!query || !query.trim() || node === null || node === undefined) return node;
+  if (typeof node === 'string') {
+    return highlightMatches(node, query);
+  }
+  if (typeof node === 'number') {
+    return highlightMatches(String(node), query);
+  }
+  if (React.isValidElement(node)) {
+    const element = node as React.ReactElement<{ children?: React.ReactNode }>;
+    if (element.props && element.props.children !== undefined) {
+      const children = element.props.children;
+      if (typeof children === 'string') {
+        return React.cloneElement(element, undefined, highlightMatches(children, query));
+      }
+      if (Array.isArray(children)) {
+        return React.cloneElement(
+          element,
+          undefined,
+          children.map((child, idx) => {
+            const key = React.isValidElement(child) && child.key != null ? child.key : idx;
+            return <React.Fragment key={key}>{highlightNode(child, query)}</React.Fragment>;
+          })
+        );
+      }
+      return React.cloneElement(element, undefined, highlightNode(children, query));
+    }
+    return node;
+  }
+  if (Array.isArray(node)) {
+    return node.map((child, idx) => {
+      const key = React.isValidElement(child) && child.key != null ? child.key : idx;
+      return <React.Fragment key={key}>{highlightNode(child, query)}</React.Fragment>;
+    });
+  }
+  return node;
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -74,23 +166,46 @@ export default function EditableTable(props: EditableTableProps) {
     onDelete,
     idField = 'id',
     searchable = true,
+    searchTerm: externalSearch,
+    onSearchChange,
     filters = [],
+    activeFilters: externalActiveFilters,
+    onFilterChange: externalOnFilterChange,
     defaultSortKey = '',
     defaultSortDir = 'desc',
     emptyMessage = 'No hay datos para mostrar.',
     isLoading = false,
     initialLimit,
     loadMoreLabel = 'Cargar total',
+    collapseLabel,
+    onLimitChange,
   } = props;
 
   // --- Local state ---
   const [sortKey, setSortKey] = useState<string>(defaultSortKey);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(defaultSortDir);
-  const [search, setSearch] = useState('');
-  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [internalSearch, setInternalSearch] = useState(externalSearch ?? '');
+  const search = externalSearch !== undefined && onSearchChange ? externalSearch : internalSearch;
+
+  const handleSearchChange = (val: string) => {
+    if (onSearchChange) {
+      onSearchChange(val);
+    }
+    setInternalSearch(val);
+  };
+
+  const [internalActiveFilters, setInternalActiveFilters] = useState<Record<string, string>>({});
+  const activeFilters = externalActiveFilters !== undefined ? externalActiveFilters : internalActiveFilters;
+
+  function handleFilterChange(key: string, value: string) {
+    if (externalOnFilterChange) {
+      externalOnFilterChange(key, value);
+    }
+    setInternalActiveFilters((prev) => ({ ...prev, [key]: value }));
+  }
+
   const [limit, setLimit] = useState<number | null>(initialLimit ?? null);
   const [pending, setPending] = useState<{
-
     id: string;
     field: string;
     oldValue: unknown;
@@ -107,21 +222,83 @@ export default function EditableTable(props: EditableTableProps) {
   const displayed = useMemo(() => {
     let result = [...rows];
 
-    // Apply search
+    // Apply global search across all historical rows
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter((row) =>
-        Object.values(row).some((v) => {
+        Object.entries(row).some(([k, v]) => {
+          if (k.startsWith('_')) return false; // skip internal meta like _raw
           if (v === null || v === undefined) return false;
+          if (typeof v === 'object') return false;
           return String(v).toLowerCase().includes(q);
         })
       );
     }
 
-    // Apply extra filters
+    // Apply extra column filters
     Object.entries(activeFilters).forEach(([key, val]) => {
       if (!val) return;
-      result = result.filter((row) => String(row[key] ?? '') === val);
+      if (key === 'date_from' || key === 'date_to') return; // Handled within 'date'
+      const filterDef = filters.find((f) => f.key === key);
+      if (filterDef?.filterFn) {
+        result = result.filter((row) => filterDef.filterFn!(row[key], val, row));
+      } else if (filterDef?.matchMode === 'contains') {
+        result = result.filter((row) =>
+          String(row[key] ?? '').toLowerCase().includes(val.toLowerCase())
+        );
+      } else if (key === 'date') {
+        result = result.filter((row) => {
+          const str = String(row[key] ?? '').trim();
+          if (!str) return false;
+          const parts = str.split('/');
+          if (parts.length !== 3) return false;
+          const d = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const y = parseInt(parts[2], 10);
+          if (isNaN(d) || isNaN(m) || isNaN(y)) return false;
+
+          const rowDate = new Date(y, m - 1, d);
+          const now = new Date();
+
+          if (val === 'current_month') {
+            return m === (now.getMonth() + 1) && y === now.getFullYear();
+          }
+          if (val === 'last_month') {
+            const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            return m === (lastMonthDate.getMonth() + 1) && y === lastMonthDate.getFullYear();
+          }
+          if (val === 'current_year') {
+            return y === now.getFullYear();
+          }
+          if (val === 'custom') {
+            const fromStr = activeFilters['date_from'];
+            const toStr = activeFilters['date_to'];
+            if (fromStr) {
+              const fromDate = new Date(fromStr + 'T00:00:00');
+              if (rowDate < fromDate) return false;
+            }
+            if (toStr) {
+              const toDate = new Date(toStr + 'T23:59:59');
+              if (rowDate > toDate) return false;
+            }
+            return true;
+          }
+          if (str === val) return true;
+          if (/^\d{2}\/\d{4}$/.test(val)) {
+            return `${String(m).padStart(2, '0')}/${y}` === val;
+          }
+          return str.includes(val);
+        });
+      } else if (filterDef?.matchMode === 'month' || (key === 'date' && /^\d{2}\/\d{4}$/.test(val))) {
+        result = result.filter((row) => {
+          const str = String(row[key] ?? '');
+          if (str === val) return true;
+          if (/^\d{2}\/\d{2}\/\d{4}$/.test(str) && str.slice(3) === val) return true;
+          return str.includes(val);
+        });
+      } else {
+        result = result.filter((row) => String(row[key] ?? '') === val);
+      }
     });
 
     // Sort
@@ -160,9 +337,8 @@ export default function EditableTable(props: EditableTableProps) {
       });
     }
 
-
     return result;
-  }, [rows, search, activeFilters, sortKey, sortDir]);
+  }, [rows, search, activeFilters, sortKey, sortDir, columns, filters]);
 
   const visibleRows = useMemo(() => {
     if (limit && displayed.length > limit) {
@@ -172,7 +348,6 @@ export default function EditableTable(props: EditableTableProps) {
   }, [displayed, limit]);
 
   // --- Handlers ---
-
 
   function handleHeaderClick(key: string) {
     if (sortKey === key) {
@@ -192,7 +367,6 @@ export default function EditableTable(props: EditableTableProps) {
   function startEditing(rowId: string, col: ColumnDef, value: unknown) {
     if (!col.editable || col.type === 'readonly') return;
     if (savingCell?.id === rowId) return;
-    if (pending) return;
 
     let draft = getDisplayValue(col, value);
     if (col.type === 'date') {
@@ -202,7 +376,9 @@ export default function EditableTable(props: EditableTableProps) {
     setCellDraft(draft);
   }
 
-  function commitDraft(rowId: string, col: ColumnDef, currentValue: unknown) {
+  async function handleSave(rowId: string, col: ColumnDef, currentValue: unknown) {
+    if (!editingCell || editingCell.id !== rowId || editingCell.field !== col.key) return;
+
     let finalValue: unknown = cellDraft;
     if (col.type === 'date') {
       finalValue = htmldate_to_ddmmyyyy(cellDraft);
@@ -217,15 +393,32 @@ export default function EditableTable(props: EditableTableProps) {
       ? String(parseArithmeticExpression(cellDraft))
       : cellDraft;
 
+    setEditingCell(null);
+
+    // If unchanged, do not invoke onEdit
     if (displayOld === displayNew) {
-      setEditingCell(null);
       return;
     }
 
-    setEditingCell(null);
-    setPending({ id: rowId, field: col.key, oldValue: currentValue, newValue: finalValue });
+    if (!onEdit) return;
+
+    setSavingCell({ id: rowId, field: col.key });
+    setTableError(null);
+    try {
+      await onEdit(rowId, col.key, finalValue);
+    } catch (err: unknown) {
+      console.error("Error al guardar la edición:", err);
+      const msg = err instanceof Error ? err.message : "Error al guardar el cambio en la tabla.";
+      setTableError(msg);
+    } finally {
+      setSavingCell(null);
+    }
   }
 
+  function handleCancel() {
+    setEditingCell(null);
+    setCellDraft('');
+  }
 
   function handleInputKeyDown(
     e: React.KeyboardEvent,
@@ -234,9 +427,11 @@ export default function EditableTable(props: EditableTableProps) {
     currentValue: unknown
   ) {
     if (e.key === 'Enter') {
-      commitDraft(rowId, col, currentValue);
+      e.preventDefault();
+      handleSave(rowId, col, currentValue);
     } else if (e.key === 'Escape') {
-      setEditingCell(null);
+      e.preventDefault();
+      handleCancel();
     }
   }
 
@@ -261,10 +456,6 @@ export default function EditableTable(props: EditableTableProps) {
     setPending(null);
   }
 
-  function handleFilterChange(key: string, value: string) {
-    setActiveFilters((prev) => ({ ...prev, [key]: value }));
-  }
-
   // ---------------------------------------------------------------------------
   // Render helpers
   // ---------------------------------------------------------------------------
@@ -287,7 +478,7 @@ export default function EditableTable(props: EditableTableProps) {
       return <span className={styles.savingSpinner} aria-label="Guardando…" />;
     }
 
-    // Pending confirmation bubble + value
+    // Pending confirmation bubble + value (backwards compatibility)
     const bubble =
       isPending ? (
         <div className={styles.pendingBubble} onClick={(e) => e.stopPropagation()}>
@@ -313,59 +504,90 @@ export default function EditableTable(props: EditableTableProps) {
         </div>
       ) : null;
 
-
-    // Active editor
+    // Active in-situ editor with immediate action buttons
     if (isEditing) {
-      if (col.type === 'select' && col.options) {
-        return (
-          <select
-            ref={inputRef as React.RefObject<HTMLSelectElement>}
-            className={styles.cellInput}
-            value={cellDraft}
-            autoFocus
-            onChange={(e) => setCellDraft(e.target.value)}
-            onBlur={() => commitDraft(rowId, col, value)}
-          >
-            {col.options.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
-        );
-      }
-
       return (
-        <input
-          ref={inputRef as React.RefObject<HTMLInputElement>}
-          className={styles.cellInput}
-          type={col.type === 'date' ? 'date' : 'text'}
-          value={cellDraft}
-          autoFocus
-          onChange={(e) => setCellDraft(e.target.value)}
-          onBlur={() => commitDraft(rowId, col, value)}
-          onKeyDown={(e) => handleInputKeyDown(e, rowId, col, value)}
-        />
+        <div className={styles.inlineEditorContainer} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.editorInputWrapper}>
+            {col.type === 'select' && col.options ? (
+              <select
+                ref={inputRef as React.RefObject<HTMLSelectElement>}
+                className={styles.cellInput}
+                value={cellDraft}
+                autoFocus
+                onChange={(e) => setCellDraft(e.target.value)}
+                onKeyDown={(e) => handleInputKeyDown(e, rowId, col, value)}
+              >
+                {col.options.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                ref={inputRef as React.RefObject<HTMLInputElement>}
+                className={styles.cellInput}
+                type={col.type === 'date' ? 'date' : 'text'}
+                value={cellDraft}
+                autoFocus
+                onChange={(e) => setCellDraft(e.target.value)}
+                onKeyDown={(e) => handleInputKeyDown(e, rowId, col, value)}
+              />
+            )}
+          </div>
+          <div className={styles.actionPills}>
+            <button
+              type="button"
+              className={styles.pillSave}
+              title="Guardar (Enter)"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleSave(rowId, col, value);
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSave(rowId, col, value);
+              }}
+            >
+              ✓
+            </button>
+            <button
+              type="button"
+              className={styles.pillCancel}
+              title="Cancelar (Esc)"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                handleCancel();
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCancel();
+              }}
+            >
+              ✗
+            </button>
+          </div>
+        </div>
       );
-
     }
 
-    // Custom renderer
+    // Custom renderer with highlighting
     if (col.render) {
       return (
         <>
           {bubble}
-          <span className={styles.cellValue}>{col.render(value, row)}</span>
+          <span className={styles.cellValue}>{highlightNode(col.render(value, row), search)}</span>
         </>
       );
     }
 
-    // Default display
+    // Default display with highlighting
     const display = getDisplayValue(col, value);
     return (
       <>
         {bubble}
-        <span className={styles.cellValue}>{display}</span>
+        <span className={styles.cellValue}>{highlightMatches(display, search)}</span>
       </>
     );
   }
@@ -420,24 +642,54 @@ export default function EditableTable(props: EditableTableProps) {
               type="text"
               placeholder="Buscar…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
             />
           )}
-          {filters.map((f) => (
-            <select
-              key={f.key}
-              className={styles.filterSelect}
-              value={activeFilters[f.key] ?? ''}
-              onChange={(e) => handleFilterChange(f.key, e.target.value)}
-            >
-              <option value="">{f.label}</option>
-              {f.options.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          ))}
+          {filters.map((f) => {
+            const hasEmptyOpt = f.options.some((opt) => opt.value === '');
+            const isCustomDate = f.key === 'date' && activeFilters['date'] === 'custom';
+            return (
+              <React.Fragment key={f.key}>
+                <select
+                  aria-label={`Filtrar por ${f.label}`}
+                  className={styles.filterSelect}
+                  value={activeFilters[f.key] ?? ''}
+                  onChange={(e) => handleFilterChange(f.key, e.target.value)}
+                >
+                  {!hasEmptyOpt && <option value="">{f.label}</option>}
+                  {f.options.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                {isCustomDate && (
+                  <div className={styles.customDateRange}>
+                    <div className={styles.dateInputWrapper}>
+                      <span className={styles.dateInputLabel}>Desde</span>
+                      <input
+                        type="date"
+                        aria-label="Fecha desde"
+                        className={styles.dateInput}
+                        value={activeFilters['date_from'] ?? ''}
+                        onChange={(e) => handleFilterChange('date_from', e.target.value)}
+                      />
+                    </div>
+                    <div className={styles.dateInputWrapper}>
+                      <span className={styles.dateInputLabel}>Hasta</span>
+                      <input
+                        type="date"
+                        aria-label="Fecha hasta"
+                        className={styles.dateInput}
+                        value={activeFilters['date_to'] ?? ''}
+                        onChange={(e) => handleFilterChange('date_to', e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
           <span className={styles.count}>
             {limit && displayed.length > limit
               ? `Mostrando ${visibleRows.length} de ${displayed.length} fila${displayed.length !== 1 ? 's' : ''}`
@@ -536,7 +788,6 @@ export default function EditableTable(props: EditableTableProps) {
                         </button>
                       </td>
                     )}
-
                   </tr>
                 );
               })
@@ -550,7 +801,10 @@ export default function EditableTable(props: EditableTableProps) {
         <button
           type="button"
           className={styles.loadMoreBtn}
-          onClick={() => setLimit(null)}
+          onClick={() => {
+            setLimit(null);
+            onLimitChange?.(null);
+          }}
         >
           {loadMoreLabel} ({displayed.length} en total) 👇
         </button>
@@ -559,12 +813,14 @@ export default function EditableTable(props: EditableTableProps) {
         <button
           type="button"
           className={styles.loadMoreBtn}
-          onClick={() => setLimit(initialLimit)}
+          onClick={() => {
+            setLimit(initialLimit);
+            onLimitChange?.(initialLimit);
+          }}
         >
-          Mostrar solo primeras {initialLimit} filas ☝️
+          {collapseLabel ?? `Mostrar solo primeras ${initialLimit} filas ☝️`}
         </button>
       )}
     </div>
   );
 }
-

@@ -154,10 +154,11 @@
     }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
     .fabContainer {
-        bottom: 20px;
-        right: 20px;
+        bottom: 76px;
+        right: 16px;
+        z-index: 1001;
     }
 
     .fabButton {
@@ -165,3 +166,4 @@
         font-size: 0.9rem;
     }
 }
+
