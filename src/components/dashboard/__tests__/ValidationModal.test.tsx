@@ -60,7 +60,7 @@ describe('ValidationModal - List Review System for Invoices and Tickets', () => 
             if (urlStr.includes('/api/tarjetas')) {
                 return Promise.resolve({
                     ok: true,
-                    json: () => Promise.resolve({ data: [{ id: 't1', nombre: 'Visa Santander' }] })
+                    json: () => Promise.resolve({ data: [{ id: 't1', nombre: 'Visa Santander', diaCierre: 25, diaVencimiento: 5 }] })
                 } as Response);
             }
             if (urlStr.includes('/api/transactions')) {
@@ -73,6 +73,12 @@ describe('ValidationModal - List Review System for Invoices and Tickets', () => 
                 return Promise.resolve({
                     ok: true,
                     json: () => Promise.resolve({ id: 'cuota-999', success: true })
+                } as Response);
+            }
+            if (urlStr.includes('/api/investments')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ success: true, ids: ['inv-123'] })
                 } as Response);
             }
             if (urlStr.includes('/api/process')) {
@@ -366,5 +372,305 @@ describe('ValidationModal - List Review System for Invoices and Tickets', () => 
             expect(screen.getByDisplayValue('4500')).toBeDefined();
         });
     });
+
+    it('does not have autofocus on the amount input in single form view', async () => {
+        await act(async () => {
+            render(
+                <ValidationModal
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+        });
+
+        // Single form view is the default when opened without items
+        const amountInput = screen.getByPlaceholderText('0,00') as HTMLInputElement;
+        expect(amountInput).toBeDefined();
+        // Verify autofocus is not set (does not steal focus or open virtual keyboard immediately)
+        expect(amountInput.getAttribute('autofocus')).toBeNull();
+        expect(document.activeElement).not.toBe(amountInput);
+    });
+
+    it('toggles modal-open class on document.body during mount and unmount', async () => {
+        expect(document.body.classList.contains('modal-open')).toBe(false);
+
+        let unmountFn: () => void = () => {};
+        await act(async () => {
+            const { unmount } = render(
+                <ValidationModal
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+            unmountFn = unmount;
+        });
+
+        expect(document.body.classList.contains('modal-open')).toBe(true);
+
+        await act(async () => {
+            unmountFn();
+        });
+
+        expect(document.body.classList.contains('modal-open')).toBe(false);
+    });
+
+    it('automatically triggers AI processing when initialFile prop is passed', async () => {
+        const fakeFile = new File(['ticket-content'], 'receipt.jpg', { type: 'image/jpeg' });
+
+        await act(async () => {
+            render(
+                <ValidationModal
+                    initialFile={fakeFile}
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+        });
+
+        await waitFor(() => {
+            expect(global.fetch).toHaveBeenCalledWith(
+                '/api/process',
+                expect.objectContaining({
+                    method: 'POST',
+                    body: expect.any(FormData)
+                })
+            );
+        });
+    });
+
+    it('handles installment purchase before card closing day (<= diaCierre) starting in current month', async () => {
+        const itemBeforeClosing: ExtractedItem = {
+            Fecha: '20/09/2026',
+            Tipo: 'Egreso',
+            Categoría: 'Comunes',
+            Subcategoría: 'Mercadería',
+            Monto: '12000.00',
+            Comentario: 'Compra antes de cierre'
+        };
+
+        await act(async () => {
+            render(
+                <ValidationModal
+                    items={[itemBeforeClosing]}
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+        });
+
+        const itemCheck = screen.getByLabelText('Seleccionar ítem 1');
+        await act(async () => {
+            fireEvent.click(itemCheck);
+        });
+
+        const cuotasBtn = screen.getByRole('button', { name: /💳 Pagar en Cuotas/i });
+        await act(async () => {
+            fireEvent.click(cuotasBtn);
+        });
+
+        const selectTarjeta = screen.getByDisplayValue('- Ninguna / General -') as HTMLSelectElement;
+        await act(async () => {
+            fireEvent.change(selectTarjeta, { target: { value: 'Visa Santander' } });
+        });
+
+        const startMonthInput = screen.getByPlaceholderText('MM/YYYY') as HTMLInputElement;
+        expect(startMonthInput.value).toBe('09/2026');
+
+        const confirmCuotasBtn = screen.getByRole('button', { name: /Confirmar Compra \+ Cuotas/i });
+        await act(async () => {
+            fireEvent.click(confirmCuotasBtn);
+        });
+
+        await waitFor(() => {
+            expect(global.fetch).toHaveBeenCalledWith(
+                '/api/cuotas',
+                expect.objectContaining({
+                    method: 'POST',
+                    body: expect.stringContaining('"date":"20/09/2026"')
+                })
+            );
+        });
+    });
+
+    it('handles installment purchase after card closing day (> diaCierre) rolling over to next month', async () => {
+        const itemAfterClosing: ExtractedItem = {
+            Fecha: '26/09/2026',
+            Tipo: 'Egreso',
+            Categoría: 'Comunes',
+            Subcategoría: 'Mercadería',
+            Monto: '15000.00',
+            Comentario: 'Compra después de cierre'
+        };
+
+        await act(async () => {
+            render(
+                <ValidationModal
+                    items={[itemAfterClosing]}
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+        });
+
+        const itemCheck = screen.getByLabelText('Seleccionar ítem 1');
+        await act(async () => {
+            fireEvent.click(itemCheck);
+        });
+
+        const cuotasBtn = screen.getByRole('button', { name: /💳 Pagar en Cuotas/i });
+        await act(async () => {
+            fireEvent.click(cuotasBtn);
+        });
+
+        const selectTarjeta = screen.getByDisplayValue('- Ninguna / General -') as HTMLSelectElement;
+        await act(async () => {
+            fireEvent.change(selectTarjeta, { target: { value: 'Visa Santander' } });
+        });
+
+        const startMonthInput = screen.getByPlaceholderText('MM/YYYY') as HTMLInputElement;
+        expect(startMonthInput.value).toBe('10/2026');
+
+        const confirmCuotasBtn = screen.getByRole('button', { name: /Confirmar Compra \+ Cuotas/i });
+        await act(async () => {
+            fireEvent.click(confirmCuotasBtn);
+        });
+
+        await waitFor(() => {
+            expect(global.fetch).toHaveBeenCalledWith(
+                '/api/cuotas',
+                expect.objectContaining({
+                    method: 'POST',
+                    body: expect.stringContaining('"date":"26/09/2026"')
+                })
+            );
+        });
+    });
+
+    it('renders movement type switcher at the top, and displays AI field + scan/list buttons ONLY in Gasto tab', async () => {
+        await act(async () => {
+            render(
+                <ValidationModal
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+        });
+
+        // 1. Check movement type buttons exist at top
+        const gastoBtn = screen.getByRole('button', { name: 'Gasto' });
+        const ingresoBtn = screen.getByRole('button', { name: 'Ingreso' });
+        const ahorroBtn = screen.getByRole('button', { name: 'Ahorro' });
+        const inversionBtn = screen.getByRole('button', { name: 'Inversión' });
+
+        expect(gastoBtn).toBeDefined();
+        expect(ingresoBtn).toBeDefined();
+        expect(ahorroBtn).toBeDefined();
+        expect(inversionBtn).toBeDefined();
+
+        // 2. By default in Gasto tab: AI field, Escanear ticket, and Modo Lista MUST be present
+        expect(screen.getByText(/Analizar con IA/i)).toBeDefined();
+        expect(screen.getByText(/Escanear ticket/i)).toBeDefined();
+        expect(screen.getByRole('button', { name: /Modo Lista/i })).toBeDefined();
+
+        // 3. Switch to Ingreso tab
+        await act(async () => {
+            fireEvent.click(ingresoBtn);
+        });
+
+        // In Ingreso tab: AI, scan ticket, and list mode buttons must NOT be present
+        expect(screen.queryByText(/Analizar con IA/i)).toBeNull();
+        expect(screen.queryByText(/Escanear ticket/i)).toBeNull();
+        expect(screen.queryByRole('button', { name: /Modo Lista/i })).toBeNull();
+
+        // 4. Switch to Ahorro tab
+        await act(async () => {
+            fireEvent.click(ahorroBtn);
+        });
+        expect(screen.queryByText(/Analizar con IA/i)).toBeNull();
+        expect(screen.queryByText(/Escanear ticket/i)).toBeNull();
+        expect(screen.queryByRole('button', { name: /Modo Lista/i })).toBeNull();
+
+        // 5. Switch to Inversión tab
+        await act(async () => {
+            fireEvent.click(inversionBtn);
+        });
+        expect(screen.queryByText(/Analizar con IA/i)).toBeNull();
+        expect(screen.queryByText(/Escanear ticket/i)).toBeNull();
+        expect(screen.queryByRole('button', { name: /Modo Lista/i })).toBeNull();
+
+        // Verify exact fields from "Registrar movimiento" (TransactionForm) on /inversiones
+        expect(screen.getByText(/▲ Compra/i)).toBeDefined();
+        expect(screen.getByText(/▼ Venta/i)).toBeDefined();
+        expect(screen.getByText(/Activo \(Ticker\)/i)).toBeDefined();
+        expect(screen.getByPlaceholderText(/BTC, AAPL, SPY, AL30/i)).toBeDefined();
+        expect(screen.getByText(/Tipo de Activo/i)).toBeDefined();
+        expect(screen.getByText(/Cantidad/i)).toBeDefined();
+        expect(screen.getByText(/Precio Unit\./i)).toBeDefined();
+        expect(screen.getByText(/Comisión/i)).toBeDefined();
+        expect(screen.getByText(/Dólar MEP/i)).toBeDefined();
+        expect(screen.getByText(/Cartera/i)).toBeDefined();
+        expect(screen.getByRole('button', { name: /Registrar Compra/i })).toBeDefined();
+
+        // The old generic buttons and generic footer MUST NOT exist
+        expect(screen.queryByText(/🟢 Compra \/ Aporte/i)).toBeNull();
+        expect(screen.queryByRole('button', { name: /Confirmar y Guardar/i })).toBeNull();
+
+        // 6. Switch back to Gasto tab
+        await act(async () => {
+            fireEvent.click(gastoBtn);
+        });
+
+        // AI prompt and action buttons reappear
+        expect(screen.getByText(/Analizar con IA/i)).toBeDefined();
+        expect(screen.getByText(/Escanear ticket/i)).toBeDefined();
+        expect(screen.getByRole('button', { name: /Modo Lista/i })).toBeDefined();
+    });
+
+    it('submits investment through TransactionForm in ValidationModal and invokes onSuccess/onClose', async () => {
+        await act(async () => {
+            render(
+                <ValidationModal
+                    initialType="Inversión"
+                    onClose={mockOnClose}
+                    onSuccess={mockOnSuccess}
+                />
+            );
+        });
+
+        // Modal title reflects Inversión
+        expect(screen.getByText('Registrar Inversión')).toBeDefined();
+
+        // Fill out required investment fields
+        const assetInput = screen.getByPlaceholderText(/BTC, AAPL, SPY, AL30/i);
+        const qtyInput = screen.getByLabelText(/^Cantidad$/i);
+        const priceInput = screen.getByLabelText(/Precio Unit\./i);
+
+        await act(async () => {
+            fireEvent.change(assetInput, { target: { value: 'AAPL' } });
+            fireEvent.change(qtyInput, { target: { value: '10' } });
+            fireEvent.change(priceInput, { target: { value: '150' } });
+        });
+
+        const submitBtn = screen.getByRole('button', { name: /Registrar Compra/i });
+        expect(submitBtn.hasAttribute('disabled')).toBe(false);
+
+        await act(async () => {
+            fireEvent.click(submitBtn);
+        });
+
+        await waitFor(() => {
+            expect(global.fetch).toHaveBeenCalledWith(
+                '/api/investments',
+                expect.objectContaining({
+                    method: 'POST'
+                })
+            );
+        });
+
+        expect(mockOnSuccess).toHaveBeenCalledTimes(1);
+        expect(mockOnClose).toHaveBeenCalledTimes(1);
+    });
 });
+
+
 

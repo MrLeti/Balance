@@ -154,11 +154,26 @@
     }
 }
 
+/* Hidden states when modal is open */
+.fabHidden,
+:global(body.modal-open) .fabContainer {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    visibility: hidden !important;
+    transform: scale(0.85);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
 @media (max-width: 768px) {
     .fabContainer {
         bottom: 76px;
         right: 16px;
         z-index: 1001;
+    }
+
+    :global(body.modal-open) .fabContainer,
+    .fabHidden {
+        display: none !important;
     }
 
     .fabButton {

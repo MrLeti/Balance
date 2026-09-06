@@ -221,7 +221,7 @@ export default function TransactionsList({
                 key: "category",
                 label: "Categoría",
                 options: [
-                    { value: "", label: activeFilters.type ? `Todas las categorías de ${activeFilters.type}` : "Todas las categorías" },
+                    { value: "", label: "Todas las categorías" },
                     ...availableCategories.map((c) => ({ value: c, label: c })),
                 ],
             },
@@ -229,12 +229,12 @@ export default function TransactionsList({
                 key: "sub_category",
                 label: "Subcategoría",
                 options: [
-                    { value: "", label: activeFilters.category ? `Todas las subcategorías de ${activeFilters.category}` : "Todas las subcategorías" },
+                    { value: "", label: "Todas las subcategorías" },
                     ...availableSubCategories.map((s) => ({ value: s, label: s })),
                 ],
             },
         ];
-    }, [monthsDetected, availableCategories, availableSubCategories, activeFilters.type, activeFilters.category]);
+    }, [monthsDetected, availableCategories, availableSubCategories]);
 
     return (
         <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`}>

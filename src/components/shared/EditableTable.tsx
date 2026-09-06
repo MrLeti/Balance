@@ -637,59 +637,69 @@ export default function EditableTable(props: EditableTableProps) {
       {(searchable || filters.length > 0) && (
         <div className={styles.controls}>
           {searchable && (
-            <input
-              className={styles.searchInput}
-              type="text"
-              placeholder="Buscar…"
-              value={search}
-              onChange={(e) => handleSearchChange(e.target.value)}
-            />
+            <div className={styles.searchWrapper}>
+              <input
+                className={styles.searchInput}
+                type="text"
+                placeholder="Buscar…"
+                value={search}
+                onChange={(e) => handleSearchChange(e.target.value)}
+              />
+            </div>
           )}
-          {filters.map((f) => {
-            const hasEmptyOpt = f.options.some((opt) => opt.value === '');
-            const isCustomDate = f.key === 'date' && activeFilters['date'] === 'custom';
-            return (
-              <React.Fragment key={f.key}>
-                <select
-                  aria-label={`Filtrar por ${f.label}`}
-                  className={styles.filterSelect}
-                  value={activeFilters[f.key] ?? ''}
-                  onChange={(e) => handleFilterChange(f.key, e.target.value)}
-                >
-                  {!hasEmptyOpt && <option value="">{f.label}</option>}
-                  {f.options.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                {isCustomDate && (
-                  <div className={styles.customDateRange}>
-                    <div className={styles.dateInputWrapper}>
-                      <span className={styles.dateInputLabel}>Desde</span>
-                      <input
-                        type="date"
-                        aria-label="Fecha desde"
-                        className={styles.dateInput}
-                        value={activeFilters['date_from'] ?? ''}
-                        onChange={(e) => handleFilterChange('date_from', e.target.value)}
-                      />
-                    </div>
-                    <div className={styles.dateInputWrapper}>
-                      <span className={styles.dateInputLabel}>Hasta</span>
-                      <input
-                        type="date"
-                        aria-label="Fecha hasta"
-                        className={styles.dateInput}
-                        value={activeFilters['date_to'] ?? ''}
-                        onChange={(e) => handleFilterChange('date_to', e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-              </React.Fragment>
-            );
-          })}
+          {filters.length > 0 && (
+            <div className={styles.filtersGroup}>
+              {filters.map((f) => {
+                const hasEmptyOpt = f.options.some((opt) => opt.value === '');
+                const isCustomDate = f.key === 'date' && activeFilters['date'] === 'custom';
+                const currentVal = activeFilters[f.key] ?? '';
+                const selectedOpt = f.options.find((opt) => opt.value === currentVal);
+                const titleText = selectedOpt ? selectedOpt.label : f.label;
+                return (
+                  <React.Fragment key={f.key}>
+                    <select
+                      aria-label={`Filtrar por ${f.label}`}
+                      title={titleText}
+                      className={styles.filterSelect}
+                      value={currentVal}
+                      onChange={(e) => handleFilterChange(f.key, e.target.value)}
+                    >
+                      {!hasEmptyOpt && <option value="">{f.label}</option>}
+                      {f.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                    {isCustomDate && (
+                      <div className={styles.customDateRange}>
+                        <div className={styles.dateInputWrapper}>
+                          <span className={styles.dateInputLabel}>Desde</span>
+                          <input
+                            type="date"
+                            aria-label="Fecha desde"
+                            className={styles.dateInput}
+                            value={activeFilters['date_from'] ?? ''}
+                            onChange={(e) => handleFilterChange('date_from', e.target.value)}
+                          />
+                        </div>
+                        <div className={styles.dateInputWrapper}>
+                          <span className={styles.dateInputLabel}>Hasta</span>
+                          <input
+                            type="date"
+                            aria-label="Fecha hasta"
+                            className={styles.dateInput}
+                            value={activeFilters['date_to'] ?? ''}
+                            onChange={(e) => handleFilterChange('date_to', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          )}
           <span className={styles.count}>
             {limit && displayed.length > limit
               ? `Mostrando ${visibleRows.length} de ${displayed.length} fila${displayed.length !== 1 ? 's' : ''}`

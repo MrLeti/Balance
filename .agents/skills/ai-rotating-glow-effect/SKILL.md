@@ -51,20 +51,31 @@ A standard CSS border cannot animate rotation around a non-square element withou
 
 ---
 
-## 2. Geometry: The Aspect-Ratio Coverage Formula
+## 2. Geometry: The Dynamic Euclidean Diagonal Coverage Invariant
 
-On rectangular elements (e.g. 600px wide by 70px high, aspect ratio ~8.5:1), a standard 100% x 100% spinning gradient box clips when rotated 90° or 270°.
+On rectangular elements (e.g. 600px wide by 70px high, or when expanding to 1060px in desktop list views), an isotropic rotating disk must **always circumscribe the rectangle** across all 360 degrees without showing seams, unlit corners, or clipping.
 
-To guarantee the spinning disk **always circumscribes the rectangle** across all 360 degrees without showing seams or uncolored corners, use this oversized geometry:
+### The Euclidean Invariant Formula
+For any element with width $W$ and height $H$, the maximum distance from the element's geometric center $(W/2, H/2)$ to any vertex is the circumradius:
+
+$$R = \frac{\sqrt{W^2 + H^2}}{2}$$
+
+To guarantee that rotating the square by any angle $\theta \in [0, 360^\circ]$ leaves zero uncolored gaps, the spinning layer must be a square centered at `(50%, 50%)` with side length:
+
+$$S \ge \sqrt{W^2 + H^2} + \text{safety margin (e.g. 36px for blur aura)}$$
 
 ```css
-/* Oversized dimensions centered on the component */
-top: -260%;
-left: -100%;
-width: 300%;
-height: 620%;
+/* Centered isotropic spinning square */
+top: 50%;
+left: 50%;
+width: var(--glow-size, 1600px);
+height: var(--glow-size, 1600px);
+margin-top: calc(-1 * var(--glow-half-size, 800px));
+margin-left: calc(-1 * var(--glow-half-size, 800px));
 transform-origin: center center;
 ```
+
+A lightweight `ResizeObserver` observes the component container and dynamically sets `--glow-size` and `--glow-half-size` as CSS variables on the container. If JavaScript is disabled or during SSR, CSS fallbacks (`1600px` / `800px`) ensure full visual coverage.
 
 ---
 
@@ -89,10 +100,12 @@ transform-origin: center center;
     }
 }
 
-/* Outer Wrapper */
+/* Outer Wrapper with CSS variable fallback */
 .aiGlowOuter {
     position: relative;
     width: 100%;
+    --glow-size: 1600px;
+    --glow-half-size: 800px;
 }
 
 /* Layer 1: Diffuse Outer Aura */
@@ -110,10 +123,12 @@ transform-origin: center center;
 .aiGlowBlur::before {
     content: "";
     position: absolute;
-    top: -260%;
-    left: -100%;
-    width: 300%;
-    height: 620%;
+    top: 50%;
+    left: 50%;
+    width: var(--glow-size, 1600px);
+    height: var(--glow-size, 1600px);
+    margin-top: calc(-1 * var(--glow-half-size, 800px));
+    margin-left: calc(-1 * var(--glow-half-size, 800px));
     background: conic-gradient(
         from 0deg,
         #3b82f6,
@@ -146,10 +161,12 @@ transform-origin: center center;
 .aiPromptContainer::before {
     content: "";
     position: absolute;
-    top: -260%;
-    left: -100%;
-    width: 300%;
-    height: 620%;
+    top: 50%;
+    left: 50%;
+    width: var(--glow-size, 1600px);
+    height: var(--glow-size, 1600px);
+    margin-top: calc(-1 * var(--glow-half-size, 800px));
+    margin-left: calc(-1 * var(--glow-half-size, 800px));
     background: conic-gradient(
         from 0deg,
         #3b82f6,
@@ -316,7 +333,7 @@ transform-origin: center center;
 ```tsx
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import styles from "./AiGlow.module.css";
 
 interface AiPromptBarProps {
@@ -342,6 +359,36 @@ export const AiPromptBar: React.FC<AiPromptBarProps> = ({
 }) => {
     const [value, setValue] = useState("");
 
+    // Dynamically calculate Euclidean diagonal to adapt to any width/height change
+    const glowRoRef = useRef<ResizeObserver | null>(null);
+    const aiGlowRef = useCallback((node: HTMLDivElement | null) => {
+        if (glowRoRef.current) {
+            glowRoRef.current.disconnect();
+            glowRoRef.current = null;
+        }
+
+        if (node && typeof window !== "undefined") {
+            const updateGlowDimensions = () => {
+                const rect = node.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) return;
+                // Calculate diagonal: sqrt(w^2 + h^2) + safety margin for blur aura
+                const diagonal = Math.ceil(Math.hypot(rect.width, rect.height)) + 36;
+                node.style.setProperty("--glow-size", `${diagonal}px`);
+                node.style.setProperty("--glow-half-size", `${Math.ceil(diagonal / 2)}px`);
+            };
+
+            updateGlowDimensions();
+
+            if (typeof ResizeObserver !== "undefined") {
+                const ro = new ResizeObserver(updateGlowDimensions);
+                ro.observe(node);
+                glowRoRef.current = ro;
+            }
+
+            window.addEventListener("resize", updateGlowDimensions);
+        }
+    }, []);
+
     const handleAction = () => {
         const trimmed = value.trim();
         if (!trimmed || isLoading || disabled) return;
@@ -356,7 +403,7 @@ export const AiPromptBar: React.FC<AiPromptBarProps> = ({
     };
 
     return (
-        <div className={`${styles.aiGlowOuter} ${className}`}>
+        <div className={`${styles.aiGlowOuter} ${className}`} ref={aiGlowRef}>
             {/* Layer 1: Soft, intense rotating outer glow */}
             <div className={styles.aiGlowBlur} aria-hidden="true" />
 

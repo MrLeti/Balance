@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import styles from "./AiPromptBar.module.css";
 
 export interface AiPromptBarProps {
@@ -16,7 +16,8 @@ export interface AiPromptBarProps {
 
 /**
  * Reusable AI Prompt Bar with rotating glowing aura, sharp glowing border,
- * and modern action button.
+ * and modern action button. Automatically and dynamically adapts its glowing
+ * diameter to any aspect ratio and width/height change using ResizeObserver.
  */
 export const AiPromptBar: React.FC<AiPromptBarProps> = ({
     title = "Analizar con IA",
@@ -29,6 +30,36 @@ export const AiPromptBar: React.FC<AiPromptBarProps> = ({
     className = ""
 }) => {
     const [value, setValue] = useState("");
+
+    // Dynamically calculate the glowing aura diameter to adapt to any width/height change
+    const glowRoRef = useRef<ResizeObserver | null>(null);
+    const aiGlowRef = useCallback((node: HTMLDivElement | null) => {
+        if (glowRoRef.current) {
+            glowRoRef.current.disconnect();
+            glowRoRef.current = null;
+        }
+
+        if (node && typeof window !== "undefined") {
+            const updateGlowDimensions = () => {
+                const rect = node.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) return;
+                // Calculate diagonal: sqrt(w^2 + h^2) + safety padding for the aura blur
+                const diagonal = Math.ceil(Math.hypot(rect.width, rect.height)) + 36;
+                node.style.setProperty("--glow-size", `${diagonal}px`);
+                node.style.setProperty("--glow-half-size", `${Math.ceil(diagonal / 2)}px`);
+            };
+
+            updateGlowDimensions();
+
+            if (typeof ResizeObserver !== "undefined") {
+                const ro = new ResizeObserver(updateGlowDimensions);
+                ro.observe(node);
+                glowRoRef.current = ro;
+            }
+
+            window.addEventListener("resize", updateGlowDimensions);
+        }
+    }, []);
 
     const handleAction = () => {
         const trimmed = value.trim();
@@ -44,7 +75,7 @@ export const AiPromptBar: React.FC<AiPromptBarProps> = ({
     };
 
     return (
-        <div className={`${styles.aiGlowOuter} ${className}`}>
+        <div className={`${styles.aiGlowOuter} ${className}`} ref={aiGlowRef}>
             {/* Layer 1: Soft, intense rotating outer glow blur */}
             <div className={styles.aiGlowBlur} aria-hidden="true" />
 

@@ -11,7 +11,7 @@
     background: rgba(0, 0, 0, 0.65);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    z-index: 1000;
+    z-index: 2000;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -40,17 +40,32 @@
     max-width: 1060px;
 }
 
+/* Modal width for comprehensive investment form */
+.modalInvestment {
+    max-width: 640px;
+}
+
 /* Header bar */
 .header {
-    padding: 18px 24px;
+    padding: 18px 24px 14px 24px;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 14px;
     background: var(--glass-bg);
     border-bottom: 1px solid var(--glass-border);
     z-index: 10;
     flex-shrink: 0;
-    gap: 16px;
+}
+
+.headerTop {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
+.topTypeNav {
+    width: 100%;
 }
 
 .headerLeft {
@@ -208,10 +223,27 @@
     }
 }
 
+.aiGastoSection {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+}
+
+.aiActionsRow {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .aiGlowOuter {
     position: relative;
     width: 100%;
     margin-bottom: 4px;
+    --glow-size: 1600px;
+    --glow-half-size: 800px;
 }
 
 /* Layer 1: Soft, intense rotating outer glow blur */
@@ -229,10 +261,12 @@
 .aiGlowBlur::before {
     content: "";
     position: absolute;
-    top: -260%;
-    left: -100%;
-    width: 300%;
-    height: 620%;
+    top: 50%;
+    left: 50%;
+    width: var(--glow-size, 1600px);
+    height: var(--glow-size, 1600px);
+    margin-top: calc(-1 * var(--glow-half-size, 800px));
+    margin-left: calc(-1 * var(--glow-half-size, 800px));
     background: conic-gradient(
         from 0deg,
         #3b82f6,
@@ -264,10 +298,12 @@
 .aiPromptContainer::before {
     content: "";
     position: absolute;
-    top: -260%;
-    left: -100%;
-    width: 300%;
-    height: 620%;
+    top: 50%;
+    left: 50%;
+    width: var(--glow-size, 1600px);
+    height: var(--glow-size, 1600px);
+    margin-top: calc(-1 * var(--glow-half-size, 800px));
+    margin-left: calc(-1 * var(--glow-half-size, 800px));
     background: conic-gradient(
         from 0deg,
         #3b82f6,
@@ -620,7 +656,7 @@
     padding: 8px 10px;
     border-radius: 10px;
     border: 1px solid var(--glass-border);
-    background: rgba(0, 0, 0, 0.12);
+    background: var(--surface-hover, rgba(0, 0, 0, 0.05));
     color: var(--text-main);
     font-size: 0.88rem;
     font-family: inherit;
@@ -633,7 +669,27 @@
 .selectStyle:focus {
     outline: none;
     border-color: var(--accent-color);
-    background: rgba(0, 0, 0, 0.2);
+    background: var(--surface-container, var(--bg-color));
+}
+
+.noSpinners::-webkit-outer-spin-button,
+.noSpinners::-webkit-inner-spin-button,
+.amountInput::-webkit-outer-spin-button,
+.amountInput::-webkit-inner-spin-button,
+.inputNum::-webkit-outer-spin-button,
+.inputNum::-webkit-inner-spin-button,
+.inputStyle[type="number"]::-webkit-outer-spin-button,
+.inputStyle[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.noSpinners,
+.amountInput,
+.inputNum,
+.inputStyle[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
 }
 
 .selectStyle {
@@ -726,6 +782,11 @@
 /* ==========================================================================
    SINGLE TRANSACTION QUICK FORM (Segmented + Big Monto Card)
    ========================================================================== */
+
+.investmentFormContainer {
+    width: 100%;
+    padding: 2px 0 8px 0;
+}
 
 .singleFormContainer {
     display: flex;
@@ -911,10 +972,75 @@
     min-width: 0;
 }
 
+.label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 0;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.labelRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    width: 100%;
+}
+
+.labelHint {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+/* Ensure all labels share a uniform minimum height */
+.inputGroup > label,
+.inputGroup > .label,
+.inputGroup > .labelRow {
+    min-height: 20px;
+    display: flex;
+    align-items: center;
+}
+
+/* Push all controls to bottom of grid cell to guarantee baseline alignment across columns */
+.inputGroup > input,
+.inputGroup > select,
+.inputGroup > .inputStyle,
+.inputGroup > .selectStyle,
+.inputGroup > .dateWrapper,
+.inputGroup > .noDebtBadge {
+    margin-top: auto;
+    height: 42px;
+    box-sizing: border-box;
+}
+
+.noDebtBadge {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 10px;
+    border: 1px dashed var(--glass-border);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    background: var(--surface-hover);
+    box-sizing: border-box;
+    width: 100%;
+}
+
 .dateWrapper {
     position: relative;
     display: flex;
     align-items: center;
+    width: 100%;
+}
+
+.dateWrapper > input {
+    height: 100%;
 }
 
 .dateIcon {
@@ -1115,7 +1241,18 @@
     }
 
     .header {
-        padding: 16px 18px;
+        padding: 14px 16px 12px 16px;
+        gap: 12px;
+    }
+
+    .aiActionsRow {
+        justify-content: flex-start;
+        gap: 8px;
+    }
+
+    .segmentedBtn {
+        padding: 8px 6px;
+        font-size: 0.85rem;
     }
 
     .scrollArea {

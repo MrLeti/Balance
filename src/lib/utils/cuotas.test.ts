@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { calculateProjectedPayments, parseStartMonth, getEstimatedCardDates, Instalment } from './cuotas';
+import {
+    calculateProjectedPayments,
+    parseStartMonth,
+    getEstimatedCardDates,
+    getInitialStartMonth,
+    advanceOneMonth,
+    getInstalmentProgress,
+    Instalment
+} from './cuotas';
 
 describe('parseStartMonth', () => {
     it('debería parsear correctamente el formato MM/YYYY', () => {
@@ -49,6 +57,120 @@ describe('getEstimatedCardDates', () => {
         const res = getEstimatedCardDates(20, 5, ref);
         expect(res.nextClosingDate).toBe('20/05/2026');
         expect(res.nextDueDate).toBe('05/06/2026');
+    });
+
+    it('debería usar día 25 y 5 por defecto si no se especifican', () => {
+        const ref = new Date(2026, 4, 15); // 15 de Mayo de 2026
+        const res = getEstimatedCardDates(undefined, undefined, ref);
+        expect(res.nextClosingDate).toBe('25/05/2026');
+        expect(res.nextDueDate).toBe('05/06/2026');
+    });
+});
+
+describe('getInitialStartMonth', () => {
+    it('asigna el mes actual si el gasto es antes o en el día de cierre (ej. 20 <= 25)', () => {
+        const month = getInitialStartMonth('20/05/2026', { diaCierre: 25 });
+        expect(month).toBe('05/2026');
+    });
+
+    it('asigna el mes siguiente si el gasto es posterior al día de cierre (ej. 26 > 25)', () => {
+        const month = getInitialStartMonth('26/05/2026', { diaCierre: 25 });
+        expect(month).toBe('06/2026');
+    });
+
+    it('respeta el día de cierre personalizado configurado por el usuario en la tarjeta (ej. cierre 15)', () => {
+        expect(getInitialStartMonth('14/05/2026', { diaCierre: 15 })).toBe('05/2026');
+        expect(getInitialStartMonth('16/05/2026', { diaCierre: 15 })).toBe('06/2026');
+    });
+
+    it('maneja correctamente el cambio de año (diciembre a enero)', () => {
+        const month = getInitialStartMonth('28/12/2026', { diaCierre: 25 });
+        expect(month).toBe('01/2027');
+    });
+
+    it('utiliza día 25 como fallback seguro si no se especifica tarjeta', () => {
+        expect(getInitialStartMonth('20/05/2026', null)).toBe('05/2026');
+        expect(getInitialStartMonth('26/05/2026', null)).toBe('06/2026');
+    });
+});
+
+describe('advanceOneMonth', () => {
+    it('avanza exactamente un mes manteniendo el mismo día', () => {
+        expect(advanceOneMonth('25/05/2026')).toBe('25/06/2026');
+        expect(advanceOneMonth('05/06/2026')).toBe('05/07/2026');
+    });
+
+    it('maneja fin de año pasando de diciembre a enero', () => {
+        expect(advanceOneMonth('25/12/2026')).toBe('25/01/2027');
+    });
+
+    it('ajusta días para meses más cortos como febrero', () => {
+        expect(advanceOneMonth('31/01/2026')).toBe('28/02/2026');
+    });
+});
+
+describe('getInstalmentProgress', () => {
+    it('calcula correctamente el progreso 1/3 cuando ninguna cuota ha sido pagada', () => {
+        const inst: Instalment = {
+            id: 'i1',
+            date: '20/05/2026',
+            concept: 'Zapatos',
+            totalAmount: 30000,
+            instalmentsCount: 3,
+            startMonth: '05/2026',
+            tarjeta: 'Visa Galicia'
+        };
+        const progress = getInstalmentProgress(inst, []);
+        expect(progress.currentNumber).toBe(1);
+        expect(progress.totalCount).toBe(3);
+        expect(progress.paidCount).toBe(0);
+        expect(progress.remainingAmount).toBe(30000);
+        expect(progress.isCompleted).toBe(false);
+    });
+
+    it('calcula progreso 4/6 y saldo restante tras pagar 3 cuotas', () => {
+        const inst: Instalment = {
+            id: 'i1',
+            date: '20/01/2026',
+            concept: 'Televisor',
+            totalAmount: 60000,
+            instalmentsCount: 6,
+            startMonth: '01/2026',
+            tarjeta: 'Visa Galicia'
+        };
+        const pagos = [
+            { id: 'p1', closingDate: '25/01/2026', tarjeta: 'Visa Galicia', period: '01/2026', amount: 10000 },
+            { id: 'p2', closingDate: '25/02/2026', tarjeta: 'Visa Galicia', period: '02/2026', amount: 10000 },
+            { id: 'p3', closingDate: '25/03/2026', tarjeta: 'Visa Galicia', period: '03/2026', amount: 10000 }
+        ];
+        const progress = getInstalmentProgress(inst, pagos);
+        expect(progress.currentNumber).toBe(4);
+        expect(progress.totalCount).toBe(6);
+        expect(progress.paidCount).toBe(3);
+        expect(progress.remainingAmount).toBe(30000);
+        expect(progress.isCompleted).toBe(false);
+    });
+
+    it('marca completado cuando todas las cuotas han sido pagadas', () => {
+        const inst: Instalment = {
+            id: 'i1',
+            date: '20/01/2026',
+            concept: 'Licuadora',
+            totalAmount: 20000,
+            instalmentsCount: 2,
+            startMonth: '01/2026',
+            tarjeta: 'Visa Galicia'
+        };
+        const pagos = [
+            { id: 'p1', closingDate: '25/01/2026', tarjeta: 'Visa Galicia', period: '01/2026', amount: 10000 },
+            { id: 'p2', closingDate: '25/02/2026', tarjeta: 'Visa Galicia', period: '02/2026', amount: 10000 }
+        ];
+        const progress = getInstalmentProgress(inst, pagos);
+        expect(progress.currentNumber).toBe(2);
+        expect(progress.totalCount).toBe(2);
+        expect(progress.paidCount).toBe(2);
+        expect(progress.remainingAmount).toBe(0);
+        expect(progress.isCompleted).toBe(true);
     });
 });
 

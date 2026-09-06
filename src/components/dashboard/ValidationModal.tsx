@@ -1,19 +1,25 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./ValidationModal.module.css";
 import { CATEGORIES, ExtractedItem, TrxType, CategoryItem } from "@/lib/constants";
 import { parseSafeAmount, fmt } from "@/lib/utils/format";
+import { getInitialStartMonth, TarjetaInfo } from "@/lib/utils/cuotas";
+import TransactionForm from "@/components/inversiones/TransactionForm";
 
 interface ValidationModalProps {
     items?: ExtractedItem[];
     initialType?: TrxType;
+    initialFile?: File;
     onClose: () => void;
     onSuccess: () => void;
 }
 
 // Image compression helper for mobile uploads to prevent Vercel 413 error
 const compressImage = async (file: File): Promise<File> => {
+    if (typeof window === "undefined" || typeof Image === "undefined" || process.env.NODE_ENV === "test") {
+        return file;
+    }
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.readAsDataURL(file);
@@ -84,7 +90,7 @@ const fromIsoDate = (isoStr: string) => {
     return isoStr;
 };
 
-export default function ValidationModal({ items, initialType = "Egreso", onClose, onSuccess }: ValidationModalProps) {
+export default function ValidationModal({ items, initialType = "Egreso", initialFile, onClose, onSuccess }: ValidationModalProps) {
     const defaultType = initialType || "Egreso";
     const hasInitialItems = Boolean(items && items.length > 0);
 
@@ -126,7 +132,7 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
     const [instalmentConcept, setInstalmentConcept] = useState("");
     const [instalmentsCount, setInstalmentsCount] = useState("1");
     const [startMonth, setStartMonth] = useState("");
-    const [tarjetas, setTarjetas] = useState<{ id: string; nombre: string }[]>([]);
+    const [tarjetas, setTarjetas] = useState<TarjetaInfo[]>([]);
     const [selectedTarjeta, setSelectedTarjeta] = useState("");
 
     // AI & Scanning state (AI analyze input is always visible)
@@ -138,6 +144,36 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
     const [dynamicCategories, setDynamicCategories] = useState<CategoryItem[]>([]);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Dynamically calculate the glowing aura diameter to adapt to any width/height change
+    const glowRoRef = useRef<ResizeObserver | null>(null);
+    const aiGlowRef = useCallback((node: HTMLDivElement | null) => {
+        if (glowRoRef.current) {
+            glowRoRef.current.disconnect();
+            glowRoRef.current = null;
+        }
+
+        if (node && typeof window !== "undefined") {
+            const updateGlowDimensions = () => {
+                const rect = node.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) return;
+                // Calculate diagonal: sqrt(w^2 + h^2) + safety padding for the aura blur
+                const diagonal = Math.ceil(Math.hypot(rect.width, rect.height)) + 36;
+                node.style.setProperty("--glow-size", `${diagonal}px`);
+                node.style.setProperty("--glow-half-size", `${Math.ceil(diagonal / 2)}px`);
+            };
+
+            updateGlowDimensions();
+
+            if (typeof ResizeObserver !== "undefined") {
+                const ro = new ResizeObserver(updateGlowDimensions);
+                ro.observe(node);
+                glowRoRef.current = ro;
+            }
+
+            window.addEventListener("resize", updateGlowDimensions);
+        }
+    }, []);
 
     // Fetch dynamic categories
     useEffect(() => {
@@ -180,7 +216,7 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             .catch(() => {});
     }, []);
 
-    // Close on Escape & Lock body scroll
+    // Close on Escape, Lock body scroll & toggle modal-open state
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === "Escape" && !isSaving && !isProcessingAI) {
@@ -189,19 +225,28 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         };
         window.addEventListener("keydown", handleKeyDown);
         document.body.style.overflow = "hidden";
+        document.body.classList.add("modal-open");
+        window.dispatchEvent(new Event("modal_opened"));
+
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
             document.body.style.overflow = "";
+            document.body.classList.remove("modal-open");
+            window.dispatchEvent(new Event("modal_closed"));
         };
     }, [onClose, isSaving, isProcessingAI]);
 
+    // Automatically trigger AI processing if an initialFile was provided (e.g. from Web Share Target)
+    useEffect(() => {
+        if (initialFile) {
+            void processWithAI(initialFile);
+        }
+    }, [initialFile]);
+
     // Initialize start month and tarjetas
     useEffect(() => {
-        const date = new Date();
-        date.setMonth(date.getMonth() + 1);
-        const mm = (date.getMonth() + 1).toString().padStart(2, "0");
-        const yyyy = date.getFullYear();
-        setStartMonth(`${mm}/${yyyy}`);
+        const initialDate = initialItems[0]?.Fecha || getTodayFormatted();
+        setStartMonth(getInitialStartMonth(initialDate, null));
 
         fetch("/api/tarjetas")
             .then((r) => r.json())
@@ -236,7 +281,13 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         setEditableItems(prev =>
             prev.map((item, i) => (i === index ? { ...item, [field]: value } : item))
         );
+        if (field === "Fecha" && isInstalmentMode) {
+            const targetCard = tarjetas.find((t) => t.nombre === selectedTarjeta) || null;
+            setStartMonth(getInitialStartMonth(value, targetCard));
+        }
     };
+
+    const activeType = (editableItems[0]?.Tipo as TrxType) || defaultType;
 
     const handleTypeChange = (index: number, newType: TrxType) => {
         setEditableItems(prev =>
@@ -254,10 +305,34 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         );
     };
 
+    const handleGlobalTypeChange = (newType: TrxType) => {
+        if (newType !== "Egreso" && viewMode === "list") {
+            setViewMode("single");
+        }
+        setEditableItems(prev => {
+            if (prev.length === 0) {
+                return [{
+                    Fecha: getTodayFormatted(),
+                    Tipo: newType,
+                    Categoría: "",
+                    Subcategoría: "",
+                    Monto: "",
+                    Comentario: "",
+                    isConfirmed: true
+                }];
+            }
+            return prev.map((item, i) => (
+                viewMode === "single"
+                    ? (i === 0 ? { ...item, Tipo: newType, Categoría: "", Subcategoría: "" } : item)
+                    : { ...item, Tipo: newType, Categoría: "", Subcategoría: "" }
+            ));
+        });
+    };
+
     const handleAddNewItem = () => {
         const newItem = {
             Fecha: getTodayFormatted(),
-            Tipo: defaultType,
+            Tipo: activeType,
             Categoría: "",
             Subcategoría: "",
             Monto: "",
@@ -272,7 +347,7 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
         if (editableItems.length <= 1) {
             setEditableItems([{
                 Fecha: getTodayFormatted(),
-                Tipo: defaultType,
+                Tipo: activeType,
                 Categoría: "",
                 Subcategoría: "",
                 Monto: "",
@@ -403,6 +478,11 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             initialConcept = confirmedEgresos[0].Comentario || confirmedEgresos[0].Subcategoría || "Compra en cuotas";
         }
         setInstalmentConcept(initialConcept);
+
+        const targetCard = tarjetas.find((t) => t.nombre === selectedTarjeta) || null;
+        const trxDate = confirmedEgresos[0]?.Fecha || editableItems[0]?.Fecha || getTodayFormatted();
+        setStartMonth(getInitialStartMonth(trxDate, targetCard));
+
         setIsInstalmentMode(true);
     };
 
@@ -452,12 +532,14 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                 const yyyy = today.getFullYear();
 
                 const concept = instalmentConcept.trim() || "Compra en cuotas";
+                const confirmedEgreso = editableItems.find((i) => i.isConfirmed && i.Tipo === "Egreso");
+                const trxDate = confirmedEgreso?.Fecha || editableItems[0]?.Fecha || `${dd}/${mm}/${yyyy}`;
 
                 const cuotaRes = await fetch("/api/cuotas", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        date: `${dd}/${mm}/${yyyy}`,
+                        date: trxDate,
                         concept: concept,
                         totalAmount: totalAmount,
                         instalmentsCount: count,
@@ -608,13 +690,30 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
             onDrop={handleDrop}
         >
             <div 
-                className={`${styles.modal} ${viewMode === "list" ? styles.modalList : ""} ${isDragging ? styles.dragActive : ""}`} 
+                className={`${styles.modal} ${viewMode === "list" ? styles.modalList : ""} ${activeType === "Inversión" ? styles.modalInvestment : ""} ${isDragging ? styles.dragActive : ""}`} 
                 role="dialog" 
                 aria-modal="true"
             >
                 {/* Header Bar */}
                 <div className={styles.header}>
-                    <div className={styles.headerLeft}>
+                    <div className={styles.headerTop}>
+                        <div className={styles.titleWrapper}>
+                            <h2 className={styles.title}>
+                                {isInstalmentMode 
+                                    ? "Configurar Cuotas" 
+                                    : viewMode === "list" 
+                                        ? "Revisar y Confirmar Comprobante" 
+                                        : activeType === "Inversión"
+                                            ? "Registrar Inversión"
+                                            : "Nuevo Movimiento"}
+                            </h2>
+                            {viewMode === "list" && !isInstalmentMode && (
+                                <span className={styles.itemCountBadge}>
+                                    {editableItems.length} {editableItems.length === 1 ? "ítem detectado" : "ítems detectados"}
+                                </span>
+                            )}
+                        </div>
+
                         <button
                             type="button"
                             className={styles.closeBtn}
@@ -624,112 +723,135 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                         >
                             ✕
                         </button>
-                        <div className={styles.titleWrapper}>
-                            <h2 className={styles.title}>
-                                {isInstalmentMode 
-                                    ? "Configurar Cuotas" 
-                                    : viewMode === "list" 
-                                        ? "Revisar y Confirmar Comprobante" 
-                                        : "Nuevo Movimiento"}
-                            </h2>
-                            {viewMode === "list" && !isInstalmentMode && (
-                                <span className={styles.itemCountBadge}>
-                                    {editableItems.length} {editableItems.length === 1 ? "ítem detectado" : "ítems detectados"}
-                                </span>
-                            )}
+                    </div>
+
+                    {/* Segmented Movement Type Switcher (Top of modal) */}
+                    {!isInstalmentMode && (
+                        <div className={styles.topTypeNav}>
+                            <div className={styles.segmentedControl}>
+                                <button
+                                    type="button"
+                                    className={`${styles.segmentedBtn} ${activeType === "Egreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveGasto}` : ""}`}
+                                    onClick={() => handleGlobalTypeChange("Egreso")}
+                                >
+                                    <span>Gasto</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${styles.segmentedBtn} ${activeType === "Ingreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveIngreso}` : ""}`}
+                                    onClick={() => handleGlobalTypeChange("Ingreso")}
+                                >
+                                    <span>Ingreso</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${styles.segmentedBtn} ${activeType === "Ahorro" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveAhorro}` : ""}`}
+                                    onClick={() => handleGlobalTypeChange("Ahorro")}
+                                >
+                                    <span>Ahorro</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${styles.segmentedBtn} ${activeType === "Inversión" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveInversion}` : ""}`}
+                                    onClick={() => handleGlobalTypeChange("Inversión")}
+                                >
+                                    <span>Inversión</span>
+                                </button>
+                            </div>
                         </div>
-                    </div>
-
-                    <div className={styles.headerRight}>
-                        {/* Scan ticket button */}
-                        <label 
-                            className={styles.actionPillBtn} 
-                            title="Escanear ticket o factura (foto / PDF)"
-                            style={{ cursor: isProcessingAI ? "wait" : "pointer" }}
-                        >
-                            <span>📸</span>
-                            <span className={styles.actionPillText}>{isProcessingAI ? "Escaneando..." : "Escanear ticket"}</span>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*, application/pdf"
-                                capture="environment"
-                                className={styles.hiddenInput}
-                                disabled={isProcessingAI}
-                                onChange={(e) => {
-                                    if (e.target.files && e.target.files[0]) {
-                                        void processWithAI(e.target.files[0]);
-                                        e.target.value = "";
-                                    }
-                                }}
-                            />
-                        </label>
-
-                        {/* View Mode Toggle when entering manually */}
-                        {editableItems.length <= 1 && !isInstalmentMode && (
-                            <button
-                                type="button"
-                                className={styles.viewModeToggleBtn}
-                                onClick={() => setViewMode(viewMode === "list" ? "single" : "list")}
-                                title={viewMode === "list" ? "Cambiar a formulario simple" : "Cambiar a vista de lista"}
-                            >
-                                {viewMode === "list" ? "📝 Formulario" : "📋 Modo Lista"}
-                            </button>
-                        )}
-                    </div>
+                    )}
                 </div>
 
                 <div className={styles.scrollArea}>
-                    {/* ALWAYS VISIBLE AI ANALYZE BAR WITH ROTATING GLOWING AURA */}
-                    {!isInstalmentMode && (
-                        <div className={styles.aiGlowOuter}>
-                            {/* Layer 1: Soft, intense rotating outer glow */}
-                            <div className={styles.aiGlowBlur} aria-hidden="true" />
-                            {/* Layer 2: Rotating border with inner card */}
-                            <div className={styles.aiPromptContainer}>
-                                <div className={styles.aiPromptCard}>
-                                    <div className={styles.aiPromptHeader}>
-                                        <span className={styles.aiSparkleIcon}>✨</span>
-                                        <span className={styles.aiPromptTitle}>Analizar con IA</span>
-                                        <span className={styles.aiPromptHint}>
-                                            Escribí o pegá lo que compraste (ej: &quot;4500 en súper y 1200 en farmacia&quot;)
-                                        </span>
-                                    </div>
-                                    <div className={styles.aiPromptInputRow}>
-                                        <input
-                                            type="text"
-                                            className={styles.aiInputField}
-                                            placeholder='Escribí lo que compraste, gastaste o ingresaste...'
-                                            value={aiTextPrompt}
-                                            onChange={(e) => setAiTextPrompt(e.target.value)}
-                                            disabled={isProcessingAI}
-                                            onKeyDown={(e) => {
-                                                if (e.key === "Enter" && aiTextPrompt.trim() && !isProcessingAI) {
-                                                    e.preventDefault();
-                                                    void processWithAI(undefined, aiTextPrompt);
-                                                }
-                                            }}
-                                        />
-                                        <button
-                                            type="button"
-                                            className={styles.aiAnalyzeBtn}
-                                            onClick={() => processWithAI(undefined, aiTextPrompt)}
-                                            disabled={isProcessingAI || !aiTextPrompt.trim()}
-                                        >
-                                            {isProcessingAI ? (
-                                                <>
-                                                    <span className={styles.spinIcon}>⏳</span>
-                                                    <span>Analizando...</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <span>✨</span>
-                                                    <span>Analizar</span>
-                                                </>
-                                            )}
-                                        </button>
+                    {/* GASTO TAB EXCLUSIVE: AI Analyze Bar + Scan & List Mode Buttons Underneath */}
+                    {!isInstalmentMode && activeType === "Egreso" && (
+                        <div className={styles.aiGastoSection}>
+                            <div className={styles.aiGlowOuter} ref={aiGlowRef}>
+                                {/* Layer 1: Soft, intense rotating outer glow */}
+                                <div className={styles.aiGlowBlur} aria-hidden="true" />
+                                {/* Layer 2: Rotating border with inner card */}
+                                <div className={styles.aiPromptContainer}>
+                                    <div className={styles.aiPromptCard}>
+                                        <div className={styles.aiPromptHeader}>
+                                            <span className={styles.aiSparkleIcon}>✨</span>
+                                            <span className={styles.aiPromptTitle}>Analizar con IA</span>
+                                            <span className={styles.aiPromptHint}>
+                                                Escribí o pegá lo que compraste (ej: &quot;4500 en súper y 1200 en farmacia&quot;)
+                                            </span>
+                                        </div>
+                                        <div className={styles.aiPromptInputRow}>
+                                            <input
+                                                type="text"
+                                                className={styles.aiInputField}
+                                                placeholder='Escribí lo que compraste, gastaste o ingresaste...'
+                                                value={aiTextPrompt}
+                                                onChange={(e) => setAiTextPrompt(e.target.value)}
+                                                disabled={isProcessingAI}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === "Enter" && aiTextPrompt.trim() && !isProcessingAI) {
+                                                        e.preventDefault();
+                                                        void processWithAI(undefined, aiTextPrompt);
+                                                    }
+                                                }}
+                                            />
+                                            <button
+                                                type="button"
+                                                className={styles.aiAnalyzeBtn}
+                                                onClick={() => processWithAI(undefined, aiTextPrompt)}
+                                                disabled={isProcessingAI || !aiTextPrompt.trim()}
+                                            >
+                                                {isProcessingAI ? (
+                                                    <>
+                                                        <span className={styles.spinIcon}>⏳</span>
+                                                        <span>Analizando...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span>✨</span>
+                                                        <span>Analizar</span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Buttons underneath AI bar */}
+                            <div className={styles.aiActionsRow}>
+                                {/* Scan ticket button */}
+                                <label 
+                                    className={styles.actionPillBtn} 
+                                    title="Escanear ticket o factura (foto / PDF)"
+                                    style={{ cursor: isProcessingAI ? "wait" : "pointer" }}
+                                >
+                                    <span>📸</span>
+                                    <span className={styles.actionPillText}>{isProcessingAI ? "Escaneando..." : "Escanear ticket"}</span>
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/*, application/pdf"
+                                        capture="environment"
+                                        className={styles.hiddenInput}
+                                        disabled={isProcessingAI}
+                                        onChange={(e) => {
+                                            if (e.target.files && e.target.files[0]) {
+                                                void processWithAI(e.target.files[0]);
+                                                e.target.value = "";
+                                            }
+                                        }}
+                                    />
+                                </label>
+
+                                {/* View Mode Toggle */}
+                                <button
+                                    type="button"
+                                    className={styles.viewModeToggleBtn}
+                                    onClick={() => setViewMode(viewMode === "list" ? "single" : "list")}
+                                    title={viewMode === "list" ? "Cambiar a formulario simple" : "Cambiar a vista de lista"}
+                                >
+                                    {viewMode === "list" ? "📝 Formulario" : "📋 Modo Lista"}
+                                </button>
                             </div>
                         </div>
                     )}
@@ -770,7 +892,14 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                     <select
                                         className={styles.selectStyle}
                                         value={selectedTarjeta}
-                                        onChange={(e) => setSelectedTarjeta(e.target.value)}
+                                        onChange={(e) => {
+                                            const cardName = e.target.value;
+                                            setSelectedTarjeta(cardName);
+                                            const cardObj = tarjetas.find((t) => t.nombre === cardName) || null;
+                                            const confirmedEgreso = editableItems.find((i) => i.isConfirmed && i.Tipo === "Egreso");
+                                            const trxDate = confirmedEgreso?.Fecha || editableItems[0]?.Fecha || getTodayFormatted();
+                                            setStartMonth(getInitialStartMonth(trxDate, cardObj));
+                                        }}
                                     >
                                         <option value="">- Ninguna / General -</option>
                                         {tarjetas.map((t) => (
@@ -889,8 +1018,7 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                                             className={`${styles.selectStyle} ${
                                                                 item.Tipo === "Egreso" ? styles.selectTipoEgreso :
                                                                 item.Tipo === "Ingreso" ? styles.selectTipoIngreso :
-                                                                item.Tipo === "Ahorro" ? styles.selectTipoAhorro :
-                                                                styles.selectTipoInversion
+                                                                styles.selectTipoAhorro
                                                             }`}
                                                             value={item.Tipo}
                                                             onChange={(e) => handleTypeChange(index, e.target.value as TrxType)}
@@ -898,7 +1026,6 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                                             <option value="Egreso">Egreso</option>
                                                             <option value="Ingreso">Ingreso</option>
                                                             <option value="Ahorro">Ahorro</option>
-                                                            <option value="Inversión">Inversión</option>
                                                         </select>
                                                     </td>
 
@@ -980,75 +1107,20 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                 </table>
                             </div>
                         </div>
+                    ) : activeType === "Inversión" ? (
+                        /* VIEW MODE 2: INVERSIÓN COMPREHENSIVE FORM (EXACT SAME FIELDS AS REGISTRAR MOVIMIENTO IN /inversiones) */
+                        <div className={styles.investmentFormContainer}>
+                            <TransactionForm
+                                onTransactionAdded={() => {
+                                    onSuccess();
+                                    onClose();
+                                }}
+                                onCancel={onClose}
+                            />
+                        </div>
                     ) : (
-                        /* VIEW MODE 3: SINGLE QUICK FORM */
+                        /* VIEW MODE 3: SINGLE QUICK FORM FOR GASTO, INGRESO, AHORRO */
                         <div className={styles.singleFormContainer}>
-                            {/* Segmented Toggle: Gasto / Ingreso / Ahorro / Inversión */}
-                            <div className={styles.typeToggleWrapper}>
-                                <div className={styles.segmentedControl}>
-                                    <button
-                                        type="button"
-                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Egreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveGasto}` : ""}`}
-                                        onClick={() => handleTypeChange(0, "Egreso")}
-                                    >
-                                        <span>Gasto</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Ingreso" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveIngreso}` : ""}`}
-                                        onClick={() => handleTypeChange(0, "Ingreso")}
-                                    >
-                                        <span>Ingreso</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Ahorro" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveAhorro}` : ""}`}
-                                        onClick={() => handleTypeChange(0, "Ahorro")}
-                                    >
-                                        <span>Ahorro</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className={`${styles.segmentedBtn} ${singleItem.Tipo === "Inversión" ? `${styles.segmentedBtnActive} ${styles.segmentedBtnActiveInversion}` : ""}`}
-                                        onClick={() => handleTypeChange(0, "Inversión")}
-                                    >
-                                        <span>Inversión</span>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Operación para Inversión: Compra / Aporte vs Venta / Rescate */}
-                            {singleItem.Tipo === "Inversión" && (
-                                <div style={{ display: "flex", gap: "8px", justifyContent: "center" }}>
-                                    <button
-                                        type="button"
-                                        onClick={() => setInvOperation("Compra")}
-                                        className={styles.invActionBtn}
-                                        style={{
-                                            border: invOperation === "Compra" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
-                                            background: invOperation === "Compra" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
-                                            color: invOperation === "Compra" ? "var(--text-main)" : "var(--text-muted)",
-                                            fontWeight: invOperation === "Compra" ? 700 : 500,
-                                        }}
-                                    >
-                                        🟢 Compra / Aporte (Salida)
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setInvOperation("Venta")}
-                                        className={styles.invActionBtn}
-                                        style={{
-                                            border: invOperation === "Venta" ? "1px solid #8b5cf6" : "1px solid var(--glass-border)",
-                                            background: invOperation === "Venta" ? "rgba(139, 92, 246, 0.18)" : "var(--bg-color)",
-                                            color: invOperation === "Venta" ? "var(--text-main)" : "var(--text-muted)",
-                                            fontWeight: invOperation === "Venta" ? 700 : 500,
-                                        }}
-                                    >
-                                        🔴 Venta / Rescate (Entrada)
-                                    </button>
-                                </div>
-                            )}
-
                             {/* MONTO Section con Selector ARS / USD (MEP) */}
                             <div className={styles.sectionBlock}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1084,7 +1156,6 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                                             placeholder="0,00"
                                             value={singleItem.Monto}
                                             onChange={(e) => handleFieldChange(0, "Monto", e.target.value)}
-                                            autoFocus
                                         />
                                     </div>
                                 </div>
@@ -1172,73 +1243,75 @@ export default function ValidationModal({ items, initialType = "Egreso", onClose
                     </div>
                 )}
 
-                {/* Footer Bar */}
-                <div className={styles.footer}>
-                    <div className={styles.totalsGrid}>
-                        <div className={styles.totalItem}>
-                            <span className={styles.totalsLabel}>Total:</span>
-                            <span className={styles.totalsValue}>${calculateGlobalTotal()}</span>
+                {/* Footer Bar (Omitted for Inversión as TransactionForm has its own full actions and totals) */}
+                {activeType !== "Inversión" && (
+                    <div className={styles.footer}>
+                        <div className={styles.totalsGrid}>
+                            <div className={styles.totalItem}>
+                                <span className={styles.totalsLabel}>Total:</span>
+                                <span className={styles.totalsValue}>${calculateGlobalTotal()}</span>
+                            </div>
+                            <div className={styles.totalItem}>
+                                <span className={styles.totalsLabel} style={{ color: "var(--success-color)" }}>A guardar:</span>
+                                <span className={styles.totalsValue} style={{ color: "var(--success-color)" }}>${calculateConfirmedTotal()}</span>
+                            </div>
                         </div>
-                        <div className={styles.totalItem}>
-                            <span className={styles.totalsLabel} style={{ color: "var(--success-color)" }}>A guardar:</span>
-                            <span className={styles.totalsValue} style={{ color: "var(--success-color)" }}>${calculateConfirmedTotal()}</span>
-                        </div>
-                    </div>
 
-                    <div className={styles.actions}>
-                        {isInstalmentMode ? (
-                            <>
-                                <button
-                                    type="button"
-                                    className={styles.cancelBtn}
-                                    onClick={() => setIsInstalmentMode(false)}
-                                    disabled={isSaving}
-                                >
-                                    Volver
-                                </button>
-                                <button
-                                    type="button"
-                                    className={styles.saveBtn}
-                                    disabled={isSaving || !instalmentConcept || !instalmentsCount || !startMonth}
-                                    onClick={() => handleSave(true)}
-                                >
-                                    {isSaving ? "Guardando..." : "Confirmar Compra + Cuotas"}
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                <button
-                                    type="button"
-                                    className={styles.cancelBtn}
-                                    onClick={onClose}
-                                    disabled={isSaving}
-                                >
-                                    Cancelar
-                                </button>
-
-                                {hasConfirmedEgreso && (
+                        <div className={styles.actions}>
+                            {isInstalmentMode ? (
+                                <>
                                     <button
                                         type="button"
-                                        className={styles.instalmentBtn}
-                                        onClick={handleEnableInstalmentMode}
-                                        disabled={isSaving || !someConfirmed}
+                                        className={styles.cancelBtn}
+                                        onClick={() => setIsInstalmentMode(false)}
+                                        disabled={isSaving}
                                     >
-                                        💳 Pagar en Cuotas
+                                        Volver
                                     </button>
-                                )}
+                                    <button
+                                        type="button"
+                                        className={styles.saveBtn}
+                                        disabled={isSaving || !instalmentConcept || !instalmentsCount || !startMonth}
+                                        onClick={() => handleSave(true)}
+                                    >
+                                        {isSaving ? "Guardando..." : "Confirmar Compra + Cuotas"}
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button
+                                        type="button"
+                                        className={styles.cancelBtn}
+                                        onClick={onClose}
+                                        disabled={isSaving}
+                                    >
+                                        Cancelar
+                                    </button>
 
-                                <button
-                                    type="button"
-                                    className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
-                                    disabled={!someConfirmed || isSaving || editableItems.length === 0}
-                                    onClick={() => handleSave(false)}
-                                >
-                                    {isSaving ? "Guardando..." : `Confirmar y Guardar (${confirmedCount})`}
-                                </button>
-                            </>
-                        )}
+                                    {hasConfirmedEgreso && (
+                                        <button
+                                            type="button"
+                                            className={styles.instalmentBtn}
+                                            onClick={handleEnableInstalmentMode}
+                                            disabled={isSaving || !someConfirmed}
+                                        >
+                                            💳 Pagar en Cuotas
+                                        </button>
+                                    )}
+
+                                    <button
+                                        type="button"
+                                        className={someConfirmed ? styles.saveBtn : styles.saveBtnDisabled}
+                                        disabled={!someConfirmed || isSaving || editableItems.length === 0}
+                                        onClick={() => handleSave(false)}
+                                    >
+                                        {isSaving ? "Guardando..." : `Confirmar y Guardar (${confirmedCount})`}
+                                    </button>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
+                )}
             </div>
         </div>
     );

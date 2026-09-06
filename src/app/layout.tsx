@@ -1,6 +1,7 @@
 import "./globals.css";
 import AuthProvider from "@/components/auth/AuthProvider";
 import TransactionFAB from "@/components/dashboard/TransactionFAB";
+import ShareTargetReceiver from "@/components/pwa/ShareTargetReceiver";
 import Sidebar from "@/components/layout/Sidebar";
 import { Metadata } from "next";
 
@@ -23,6 +24,7 @@ export default function RootLayout({
       </head>
       <body>
         <AuthProvider>
+          <ShareTargetReceiver />
           <div className="app-shell">
             <Sidebar />
             <div className="app-main">

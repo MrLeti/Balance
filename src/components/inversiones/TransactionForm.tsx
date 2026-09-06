@@ -125,6 +125,7 @@ const TICKER_LIST: { ticker: string; name: string; type: AssetType }[] = [
 
 interface TransactionFormProps {
     onTransactionAdded: () => void;
+    onCancel?: () => void;
 }
 
 const todayStr = () => {
@@ -135,7 +136,7 @@ const todayStr = () => {
     return `${dd}/${mm}/${yyyy}`;
 };
 
-export default function TransactionForm({ onTransactionAdded }: TransactionFormProps) {
+export default function TransactionForm({ onTransactionAdded, onCancel }: TransactionFormProps) {
     const [type, setType] = useState<TransactionType>("Compra");
     const [currency, setCurrency] = useState<Currency>("ARS");
     const [fxRate, setFxRate] = useState<string>("");
@@ -431,7 +432,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
             <div className={styles.fieldsGrid}>
                 {/* Asset ticker with autocomplete */}
                 <div className={styles.field} ref={containerRef}>
-                    <label className={styles.label}>Activo (Ticker)</label>
+                    <label className={styles.label} htmlFor="inv-asset">Activo (Ticker)</label>
                     <div className={styles.autocompleteWrapper}>
                         <input
                             id="inv-asset"
@@ -477,7 +478,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
 
                 {/* Asset type */}
                 <div className={styles.field}>
-                    <label className={styles.label}>Tipo de Activo</label>
+                    <label className={styles.label} htmlFor="inv-asset-type">Tipo de Activo</label>
                     <select
                         id="inv-asset-type"
                         className={styles.input}
@@ -492,7 +493,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
 
                 {/* Quantity */}
                 <div className={styles.field}>
-                    <label className={styles.label}>
+                    <label className={styles.label} htmlFor="inv-quantity">
                         {isSplit ? "Factor de Split (ej. 10 para 10 a 1)" : "Cantidad"}
                     </label>
                     <input
@@ -511,7 +512,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 {/* Unit price */}
                 {!isSplit && (
                     <div className={styles.field}>
-                        <label className={styles.label}>Precio Unit. ({currency})</label>
+                        <label className={styles.label} htmlFor="inv-unit-price">Precio Unit. ({currency})</label>
                         <input
                             id="inv-unit-price"
                             type="number"
@@ -529,7 +530,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 {/* Commission */}
                 {!isSplit && (
                     <div className={styles.field}>
-                        <label className={styles.label}>Comisión ({currency})</label>
+                        <label className={styles.label} htmlFor="inv-commission">Comisión ({currency})</label>
                         <input
                             id="inv-commission"
                             type="text"
@@ -544,7 +545,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 {/* FX Rate */}
                 {!isSplit && (
                     <div className={styles.field}>
-                        <label className={styles.label}>Dólar MEP ($)</label>
+                        <label className={styles.label} htmlFor="inv-fx-rate">Dólar MEP ($)</label>
                         <input
                             id="inv-fx-rate"
                             type="number"
@@ -561,7 +562,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
 
                 {/* Date */}
                 <div className={styles.field}>
-                    <label className={styles.label}>Fecha</label>
+                    <label className={styles.label} htmlFor="inv-date">Fecha</label>
                     <input
                         id="inv-date"
                         type="text"
@@ -594,7 +595,7 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
                 </div>
 
                 <div className={`${styles.field} ${styles.fieldGrow}`}>
-                    <label className={styles.label}>Comentario (opcional)</label>
+                    <label className={styles.label} htmlFor="inv-comment">Comentario (opcional)</label>
                     <input
                         id="inv-comment"
                         type="text"
@@ -629,14 +630,26 @@ export default function TransactionForm({ onTransactionAdded }: TransactionFormP
 
             {error && <p className={styles.error}>{error}</p>}
 
-            <button
-                type="submit"
-                className={styles.submitBtn}
-                disabled={!isValid || saving}
-                id="inv-submit-btn"
-            >
-                {saving ? "Guardando..." : isSplit ? "Registrar Split" : `Registrar ${type}`}
-            </button>
+            <div className={styles.actionsRow}>
+                {onCancel && (
+                    <button
+                        type="button"
+                        className={styles.cancelBtn}
+                        onClick={onCancel}
+                        disabled={saving}
+                    >
+                        Cancelar
+                    </button>
+                )}
+                <button
+                    type="submit"
+                    className={styles.submitBtn}
+                    disabled={!isValid || saving}
+                    id="inv-submit-btn"
+                >
+                    {saving ? "Guardando..." : isSplit ? "Registrar Split" : `Registrar ${type}`}
+                </button>
+            </div>
         </form>
     );
 }

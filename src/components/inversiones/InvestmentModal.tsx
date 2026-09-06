@@ -18,9 +18,14 @@ export default function InvestmentModal({ onClose, onSuccess }: InvestmentModalP
         };
         window.addEventListener("keydown", handleKeyDown);
         document.body.style.overflow = "hidden";
+        document.body.classList.add("modal-open");
+        window.dispatchEvent(new Event("modal_opened"));
+
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
             document.body.style.overflow = "";
+            document.body.classList.remove("modal-open");
+            window.dispatchEvent(new Event("modal_closed"));
         };
     }, [onClose]);
 

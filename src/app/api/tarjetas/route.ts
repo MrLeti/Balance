@@ -40,7 +40,7 @@ export async function GET() {
                 id: c.id,
                 nombre: c.nombre,
                 color: c.color || DEFAULT_CARD_COLORS[idx % DEFAULT_CARD_COLORS.length],
-                diaCierre: c.dia_cierre || 20,
+                diaCierre: c.dia_cierre || 25,
                 diaVencimiento: c.dia_vencimiento || 5,
                 proximoCierre: formattedCierre || null,
                 proximoVencimiento: formattedVenc || null,
@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
         };
 
         const cardColor = color || DEFAULT_CARD_COLORS[0];
-        const closeDay = parseInt(diaCierre, 10) || 20;
+        const closeDay = parseInt(diaCierre, 10) || 25;
         const dueDay = parseInt(diaVencimiento, 10) || 5;
 
         const { error: sbError } = await supabase.from("cards").insert({

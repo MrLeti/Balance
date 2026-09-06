@@ -5,14 +5,19 @@ import styles from "./CuotasDashboard.module.css";
 import { DEFAULT_CARD_COLORS, getEstimatedCardDates, TarjetaInfo } from "@/lib/utils/cuotas";
 import { formatAutoDateInput } from "@/lib/utils/format";
 
-export default function TarjetasManager() {
+interface TarjetasManagerProps {
+    onLiquidarCard?: (card: TarjetaInfo) => void;
+}
+
+export default function TarjetasManager({ onLiquidarCard }: TarjetasManagerProps = {}) {
     const [tarjetas, setTarjetas] = useState<TarjetaInfo[]>([]);
     const [loading, setLoading] = useState(true);
     
     // Form to create new card
+    const [showAddForm, setShowAddForm] = useState(false);
     const [nuevaTarjeta, setNuevaTarjeta] = useState("");
     const [nuevoColor, setNuevoColor] = useState(DEFAULT_CARD_COLORS[0]);
-    const [nuevoDiaCierre, setNuevoDiaCierre] = useState("20");
+    const [nuevoDiaCierre, setNuevoDiaCierre] = useState("25");
     const [nuevoDiaVencimiento, setNuevoDiaVencimiento] = useState("5");
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -32,7 +37,7 @@ export default function TarjetasManager() {
             if (res.ok) {
                 const json = await res.json();
                 const cards: TarjetaInfo[] = (json.data || []).map((t: any, i: number) => {
-                    const diaC = t.diaCierre || 20;
+                    const diaC = t.diaCierre || 25;
                     const diaV = t.diaVencimiento || 5;
                     const estimated = getEstimatedCardDates(diaC, diaV);
                     return {
@@ -66,7 +71,7 @@ export default function TarjetasManager() {
 
         setIsSubmitting(true);
         try {
-            const diaC = parseInt(nuevoDiaCierre, 10) || 20;
+            const diaC = parseInt(nuevoDiaCierre, 10) || 25;
             const diaV = parseInt(nuevoDiaVencimiento, 10) || 5;
             const estimated = getEstimatedCardDates(diaC, diaV);
 
@@ -85,6 +90,9 @@ export default function TarjetasManager() {
 
             if (res.ok) {
                 setNuevaTarjeta("");
+                setNuevoDiaCierre("25");
+                setNuevoDiaVencimiento("5");
+                setShowAddForm(false);
                 // Rotate to next default color for next card
                 const nextColorIdx = (DEFAULT_CARD_COLORS.indexOf(nuevoColor) + 1) % DEFAULT_CARD_COLORS.length;
                 setNuevoColor(DEFAULT_CARD_COLORS[nextColorIdx >= 0 ? nextColorIdx : 0]);
@@ -198,85 +206,96 @@ export default function TarjetasManager() {
                         Personalizá el color y administrá las fechas de cierre y vencimiento para proyectar vencimientos con precisión.
                     </p>
                 </div>
+                <button
+                    type="button"
+                    className={styles.toggleAddBtn}
+                    onClick={() => setShowAddForm(prev => !prev)}
+                >
+                    {showAddForm ? "✕ Cancelar" : "+ Agregar Tarjeta"}
+                </button>
             </div>
 
-            {/* Quick Add Form */}
-            <form onSubmit={handleAdd} style={{ marginBottom: "24px" }}>
-                <div className={styles.formGrid} style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                    <div className={styles.inputGroup}>
-                        <label className={styles.label}>Nombre de la Tarjeta</label>
-                        <input
-                            type="text"
-                            className={styles.input}
-                            value={nuevaTarjeta}
-                            onChange={(e) => setNuevaTarjeta(e.target.value)}
-                            placeholder="Ej. Visa Galicia"
-                            required
-                        />
-                    </div>
+            {/* Collapsible Add Form */}
+            {showAddForm && (
+                <form onSubmit={handleAdd} style={{ marginBottom: "24px" }}>
+                    <div className={styles.formGrid} style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label}>Nombre de la Tarjeta</label>
+                            <input
+                                type="text"
+                                className={styles.input}
+                                value={nuevaTarjeta}
+                                onChange={(e) => setNuevaTarjeta(e.target.value)}
+                                placeholder="Ej. Visa Galicia"
+                                required
+                            />
+                        </div>
 
-                    <div className={styles.inputGroup}>
-                        <label className={styles.label}>Color Asignado</label>
-                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                            <div className={styles.colorPickerWrapper}>
-                                <div className={styles.colorCircle} style={{ backgroundColor: nuevoColor }} />
-                                <input
-                                    type="color"
-                                    className={styles.colorInputHidden}
-                                    value={nuevoColor}
-                                    onChange={(e) => setNuevoColor(e.target.value)}
-                                    title="Elegir color personalizado"
-                                />
-                            </div>
-                            <div className={styles.colorSwatches}>
-                                {DEFAULT_CARD_COLORS.slice(0, 6).map(c => (
-                                    <button
-                                        type="button"
-                                        key={c}
-                                        className={`${styles.swatchBtn} ${nuevoColor === c ? styles.swatchActive : ""}`}
-                                        style={{ backgroundColor: c }}
-                                        onClick={() => setNuevoColor(c)}
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label}>Color Asignado</label>
+                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <div className={styles.colorPickerWrapper}>
+                                    <div className={styles.colorCircle} style={{ backgroundColor: nuevoColor }} />
+                                    <input
+                                        type="color"
+                                        className={styles.colorInputHidden}
+                                        value={nuevoColor}
+                                        onChange={(e) => setNuevoColor(e.target.value)}
+                                        title="Elegir color personalizado"
                                     />
-                                ))}
+                                </div>
+                                <div className={styles.colorSwatches}>
+                                    {DEFAULT_CARD_COLORS.slice(0, 6).map(c => (
+                                        <button
+                                            type="button"
+                                            key={c}
+                                            className={`${styles.swatchBtn} ${nuevoColor === c ? styles.swatchActive : ""}`}
+                                            style={{ backgroundColor: c }}
+                                            onClick={() => setNuevoColor(c)}
+                                        />
+                                    ))}
+                                </div>
                             </div>
+                        </div>
+
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label} htmlFor="card-dia-cierre">Día de Cierre</label>
+                            <input
+                                id="card-dia-cierre"
+                                type="number"
+                                min="1"
+                                max="31"
+                                className={styles.input}
+                                value={nuevoDiaCierre}
+                                onChange={(e) => setNuevoDiaCierre(e.target.value)}
+                                placeholder="25"
+                                required
+                            />
+                        </div>
+
+                        <div className={styles.inputGroup}>
+                            <label className={styles.label} htmlFor="card-dia-vencimiento" title="Día del mes en que vence el pago de la tarjeta">
+                                Día de Vencimiento
+                            </label>
+                            <input
+                                id="card-dia-vencimiento"
+                                type="number"
+                                min="1"
+                                max="31"
+                                className={styles.input}
+                                value={nuevoDiaVencimiento}
+                                onChange={(e) => setNuevoDiaVencimiento(e.target.value)}
+                                placeholder="5"
+                                required
+                            />
                         </div>
                     </div>
 
-                    <div className={styles.inputGroup}>
-                        <label className={styles.label}>Día Cierre Habitual</label>
-                        <input
-                            type="number"
-                            min="1"
-                            max="31"
-                            className={styles.input}
-                            value={nuevoDiaCierre}
-                            onChange={(e) => setNuevoDiaCierre(e.target.value)}
-                            placeholder="20"
-                            required
-                        />
-                    </div>
-
-                    <div className={styles.inputGroup}>
-                        <label className={styles.label} title="Día del mes en que vence el pago de la tarjeta">
-                            Día Vencimiento (Pago Resumen)
-                        </label>
-                        <input
-                            type="number"
-                            min="1"
-                            max="31"
-                            className={styles.input}
-                            value={nuevoDiaVencimiento}
-                            onChange={(e) => setNuevoDiaVencimiento(e.target.value)}
-                            placeholder="5"
-                            required
-                        />
-                    </div>
-                </div>
-
-                <button type="submit" className={styles.submitBtn} disabled={isSubmitting} style={{ maxWidth: "220px", marginTop: "12px" }}>
-                    {isSubmitting ? "Añadiendo..." : "+ Agregar Tarjeta"}
-                </button>
-            </form>
+                    <button type="submit" className={styles.submitBtn} disabled={isSubmitting} style={{ maxWidth: "220px", marginTop: "12px" }}>
+                        {isSubmitting ? "Añadiendo..." : "Guardar Tarjeta"}
+                    </button>
+                </form>
+            )}
 
             {/* Visual Cards Table */}
             {tarjetas.length === 0 ? (
@@ -288,9 +307,7 @@ export default function TarjetasManager() {
                             <tr>
                                 <th>Tarjeta</th>
                                 <th>Color</th>
-                                <th title="Día mensual en que cierra el resumen">Día Cierre ℹ️</th>
-                                <th title="Fecha exacta del próximo cierre">Próximo Cierre ℹ️</th>
-                                <th title="Día mensual en que vence el pago del resumen de la tarjeta">Día Vto. (Pago) ℹ️</th>
+                                <th title="Fecha exacta del próximo cierre informado por el banco">Próximo Cierre ℹ️</th>
                                 <th title="Fecha exacta del próximo vencimiento para pagar el resumen">Próximo Vencimiento ℹ️</th>
                                 <th style={{ textAlign: "right" }}>Acciones</th>
                             </tr>
@@ -299,8 +316,6 @@ export default function TarjetasManager() {
                             {tarjetas.map(t => {
                                 const edits = editingCards[t.id] || {};
                                 const currentColor = edits.color ?? t.color ?? DEFAULT_CARD_COLORS[0];
-                                const currentDiaC = edits.diaCierre ?? t.diaCierre ?? 20;
-                                const currentDiaV = edits.diaVencimiento ?? t.diaVencimiento ?? 5;
                                 const currentProxC = edits.proximoCierre ?? t.proximoCierre ?? "";
                                 const currentProxV = edits.proximoVencimiento ?? t.proximoVencimiento ?? "";
                                 const isDirty = Object.keys(edits).length > 0;
@@ -342,20 +357,6 @@ export default function TarjetasManager() {
                                             </div>
                                         </td>
 
-                                        {/* Día Cierre */}
-                                        <td>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                max="31"
-                                                className={styles.tableInput}
-                                                style={{ maxWidth: "65px", textAlign: "center" }}
-                                                value={currentDiaC}
-                                                onChange={(e) => handleFieldChange(t.id, "diaCierre", parseInt(e.target.value, 10) || 1)}
-                                                title="Día habitual de cierre mensual"
-                                            />
-                                        </td>
-
                                         {/* Próximo Cierre */}
                                         <td>
                                             <input
@@ -367,21 +368,6 @@ export default function TarjetasManager() {
                                                 onChange={(e) => handleDateFieldChange(t.id, "proximoCierre", e.target.value, currentProxC)}
                                                 placeholder="DD/MM/YYYY"
                                                 title="Próxima fecha exacta de cierre"
-                                            />
-                                        </td>
-
-                                        {/* Día Vencimiento */}
-                                        <td>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                max="31"
-                                                className={styles.tableInput}
-                                                style={{ maxWidth: "65px", textAlign: "center" }}
-                                                value={currentDiaV}
-                                                onFocus={(e) => e.target.select()}
-                                                onChange={(e) => handleFieldChange(t.id, "diaVencimiento", parseInt(e.target.value, 10) || 1)}
-                                                title="Día habitual de vencimiento mensual"
                                             />
                                         </td>
 
@@ -402,6 +388,17 @@ export default function TarjetasManager() {
                                         {/* Actions */}
                                         <td style={{ textAlign: "right" }}>
                                             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", alignItems: "center" }}>
+                                                {onLiquidarCard && (
+                                                    <button
+                                                        type="button"
+                                                        className={styles.liquidarRowBtn}
+                                                        onClick={() => onLiquidarCard(t)}
+                                                        title={`Liquidar resumen de ${t.nombre}`}
+                                                    >
+                                                        💳 Liquidar
+                                                    </button>
+                                                )}
+
                                                 {isDirty ? (
                                                     <button
                                                         className={styles.saveRowBtn}

@@ -8,8 +8,8 @@ import path from 'path';
 
 // Mock child modals so we can verify trigger wiring and event contracts cleanly
 vi.mock('../ValidationModal', () => ({
-  default: ({ initialType, onClose, onSuccess }: any) => (
-    <div data-testid="mock-validation-modal" data-type={initialType}>
+  default: ({ initialType, initialFile, onClose, onSuccess }: any) => (
+    <div data-testid="mock-validation-modal" data-type={initialType} data-has-file={Boolean(initialFile)}>
       <span>Modal Type: {initialType}</span>
       <button data-testid="btn-modal-success" onClick={() => {
         window.dispatchEvent(new Event('transaction_added'));
@@ -209,5 +209,49 @@ describe('TransactionFAB Component Empirical Tests (Milestone 1)', () => {
     const fabBottomVal = parseInt(fabContainerRules.match(/bottom:\s*(\d+)px/)![1], 10);
     const navHeightVal = parseInt(mobileNavRules.match(/height:\s*(\d+)px/)![1], 10);
     expect(fabBottomVal - navHeightVal).toBe(16);
+  });
+
+  it('hides the FAB container when an active modal is open or when modal_opened event is dispatched', () => {
+    const { container } = render(<TransactionFAB />);
+    const fabContainer = container.querySelector('[class*="fabContainer"]');
+    expect(fabContainer).not.toBeNull();
+    expect(fabContainer?.className).not.toMatch(/fabHidden/);
+
+    // 1. Open modal via FAB action -> fabContainer gets fabHidden
+    const fabTrigger = screen.getByRole('button', { name: /registrar nuevo movimiento/i });
+    fireEvent.click(fabTrigger);
+    fireEvent.click(screen.getByText('Gasto'));
+    expect(fabContainer?.className).toMatch(/fabHidden/);
+
+    // Close modal -> fabContainer is visible again
+    fireEvent.click(screen.getByTestId('btn-modal-close'));
+    expect(fabContainer?.className).not.toMatch(/fabHidden/);
+
+    // 2. An external modal dispatches modal_opened -> FAB hides
+    act(() => {
+      window.dispatchEvent(new Event('modal_opened'));
+    });
+    expect(fabContainer?.className).toMatch(/fabHidden/);
+
+    // External modal dispatches modal_closed -> FAB is visible again
+    act(() => {
+      window.dispatchEvent(new Event('modal_closed'));
+    });
+    expect(fabContainer?.className).not.toMatch(/fabHidden/);
+  });
+
+  it('opens ValidationModal with sharedFile when share_target_file event is dispatched', () => {
+    render(<TransactionFAB />);
+    expect(screen.queryByTestId('mock-validation-modal')).toBeNull();
+
+    const sampleFile = new File(['image-bytes'], 'ticket-mercado.jpg', { type: 'image/jpeg' });
+    act(() => {
+      window.dispatchEvent(new CustomEvent('share_target_file', { detail: { file: sampleFile } }));
+    });
+
+    const modal = screen.getByTestId('mock-validation-modal');
+    expect(modal).toBeDefined();
+    expect(modal.getAttribute('data-type')).toBe('Egreso');
+    expect(modal.getAttribute('data-has-file')).toBe('true');
   });
 });

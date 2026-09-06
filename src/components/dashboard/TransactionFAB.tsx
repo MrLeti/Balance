@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import styles from "./TransactionFAB.module.css";
 import ValidationModal from "./ValidationModal";
 import InvestmentModal from "@/components/inversiones/InvestmentModal";
@@ -10,6 +10,43 @@ export default function TransactionFAB() {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [activeModalType, setActiveModalType] = useState<TrxType | null>(null);
     const [showInvestmentModal, setShowInvestmentModal] = useState(false);
+    const [sharedFile, setSharedFile] = useState<File | null>(null);
+    const [isAnyModalOpen, setIsAnyModalOpen] = useState(false);
+
+    useEffect(() => {
+        // Sync with modal_opened / modal_closed events
+        const handleModalOpened = () => setIsAnyModalOpen(true);
+        const handleModalClosed = () => setIsAnyModalOpen(false);
+
+        // Listen for files received via Web Share Target
+        const handleSharedFile = (e: Event) => {
+            const customEvent = e as CustomEvent<{ file: File }>;
+            if (customEvent.detail?.file) {
+                setSharedFile(customEvent.detail.file);
+                setActiveModalType("Egreso");
+                setIsMenuOpen(false);
+            }
+        };
+
+        window.addEventListener("modal_opened", handleModalOpened);
+        window.addEventListener("modal_closed", handleModalClosed);
+        window.addEventListener("share_target_file", handleSharedFile);
+
+        // MutationObserver to observe document.body.classList
+        const observer = new MutationObserver(() => {
+            const hasModalOpenClass = document.body.classList.contains("modal-open");
+            setIsAnyModalOpen(hasModalOpenClass);
+        });
+
+        observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+        return () => {
+            window.removeEventListener("modal_opened", handleModalOpened);
+            window.removeEventListener("modal_closed", handleModalClosed);
+            window.removeEventListener("share_target_file", handleSharedFile);
+            observer.disconnect();
+        };
+    }, []);
 
     const handleOpenModal = (type: TrxType) => {
         setIsMenuOpen(false);
@@ -19,6 +56,8 @@ export default function TransactionFAB() {
             setActiveModalType(type);
         }
     };
+
+    const isModalActive = isAnyModalOpen || Boolean(activeModalType) || showInvestmentModal || Boolean(sharedFile);
 
     return (
         <>
@@ -30,7 +69,7 @@ export default function TransactionFAB() {
                 />
             )}
 
-            <div className={styles.fabContainer}>
+            <div className={`${styles.fabContainer} ${isModalActive ? styles.fabHidden : ""}`}>
                 {/* Main FAB Trigger */}
                 <button
                     type="button"
@@ -108,13 +147,20 @@ export default function TransactionFAB() {
                 />
             )}
 
-            {/* Cashflow & Savings Modal (Egreso, Ingreso, Ahorro) */}
-            {activeModalType && (
+            {/* Cashflow, Tickets & Savings Modal (Egreso, Ingreso, Ahorro, Shared File) */}
+            {(activeModalType || sharedFile) && (
                 <ValidationModal
                     items={[]}
-                    initialType={activeModalType}
-                    onClose={() => setActiveModalType(null)}
-                    onSuccess={() => setActiveModalType(null)}
+                    initialType={activeModalType || "Egreso"}
+                    initialFile={sharedFile || undefined}
+                    onClose={() => {
+                        setActiveModalType(null);
+                        setSharedFile(null);
+                    }}
+                    onSuccess={() => {
+                        setActiveModalType(null);
+                        setSharedFile(null);
+                    }}
                 />
             )}
         </>

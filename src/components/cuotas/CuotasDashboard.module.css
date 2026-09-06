@@ -364,4 +364,128 @@
     background: rgba(255, 255, 255, 0.06);
     font-size: 0.85rem;
     color: var(--text-color);
+}
+
+.toggleAddBtn {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    color: var(--text-main);
+    padding: 8px 16px;
+    border-radius: 9999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.toggleAddBtn:hover {
+    border-color: var(--accent-color);
+    background: var(--surface-hover);
+    transform: translateY(-1px);
+}
+
+.liquidarRowBtn {
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    color: var(--accent-color);
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.liquidarRowBtn:hover {
+    background: var(--accent-color);
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+}
+
+.progressContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 90px;
+}
+
+.progressBadge {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-main);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.progressCompleted {
+    color: var(--success-color, #10b981);
+}
+
+.progressTrack {
+    width: 100%;
+    height: 6px;
+    background: var(--glass-border, rgba(255, 255, 255, 0.1));
+    border-radius: 9999px;
+    overflow: hidden;
+}
+
+.progressBar {
+    height: 100%;
+    background: var(--accent-color, #3b82f6);
+    border-radius: 9999px;
+    transition: width 0.3s ease;
+}
+
+.progressBarCompleted {
+    background: var(--success-color, #10b981);
+}
+
+.radioFilterGroup {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface-hover, rgba(0, 0, 0, 0.05));
+    border: 1px solid var(--glass-border);
+    border-radius: 10px;
+    padding: 3px 4px;
+}
+
+.radioOption {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 7px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s ease;
+}
+
+.radioOption:hover {
+    color: var(--text-main);
+}
+
+.radioOptionActive {
+    background: var(--surface-container, var(--bg-color));
+    color: var(--text-main);
+    font-weight: 600;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.radioInput {
+    margin: 0;
+    accent-color: var(--accent-color);
+    cursor: pointer;
 }

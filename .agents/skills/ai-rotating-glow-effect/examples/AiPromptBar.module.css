@@ -20,10 +20,12 @@
     }
 }
 
-/* Outer component wrapper */
+/* Outer component wrapper with dynamic sizing fallback */
 .aiGlowOuter {
     position: relative;
     width: 100%;
+    --glow-size: 1600px;
+    --glow-half-size: 800px;
 }
 
 /* Layer 1: Soft, intense rotating outer glow blur */
@@ -41,10 +43,12 @@
 .aiGlowBlur::before {
     content: "";
     position: absolute;
-    top: -260%;
-    left: -100%;
-    width: 300%;
-    height: 620%;
+    top: 50%;
+    left: 50%;
+    width: var(--glow-size, 1600px);
+    height: var(--glow-size, 1600px);
+    margin-top: calc(-1 * var(--glow-half-size, 800px));
+    margin-left: calc(-1 * var(--glow-half-size, 800px));
     background: conic-gradient(
         from 0deg,
         #3b82f6,
@@ -76,10 +80,12 @@
 .aiPromptContainer::before {
     content: "";
     position: absolute;
-    top: -260%;
-    left: -100%;
-    width: 300%;
-    height: 620%;
+    top: 50%;
+    left: 50%;
+    width: var(--glow-size, 1600px);
+    height: var(--glow-size, 1600px);
+    margin-top: calc(-1 * var(--glow-half-size, 800px));
+    margin-left: calc(-1 * var(--glow-half-size, 800px));
     background: conic-gradient(
         from 0deg,
         #3b82f6,

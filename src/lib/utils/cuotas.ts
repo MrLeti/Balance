@@ -127,7 +127,7 @@ export function parseStartMonth(
  * Calculates estimated next closing and due dates given closing and due day-of-month.
  */
 export function getEstimatedCardDates(
-    diaCierre = 20,
+    diaCierre = 25,
     diaVencimiento = 5,
     referenceDate = new Date()
 ): { nextClosingDate: string; nextDueDate: string } {
@@ -175,6 +175,174 @@ export function getEstimatedCardDates(
     return {
         nextClosingDate: fmtDate(closingDate),
         nextDueDate: fmtDate(dueDate),
+    };
+}
+
+/**
+ * Calculates the initial start month (MM/YYYY) for an installment purchase based
+ * on the transaction date and the card's closing day.
+ * 
+ * Rule:
+ * - If expense day <= card's closing day (e.g. 20 <= 25): included in current month's statement (MM/YYYY).
+ * - If expense day > card's closing day (e.g. 26 > 25): included in next month's statement ((MM+1)/YYYY).
+ */
+export function getInitialStartMonth(
+    transactionDate?: string | Date | null,
+    tarjeta?: { diaCierre?: number; proximoCierre?: string } | null
+): string {
+    let day: number;
+    let month: number;
+    let year: number;
+
+    if (transactionDate instanceof Date && !isNaN(transactionDate.getTime())) {
+        day = transactionDate.getDate();
+        month = transactionDate.getMonth() + 1;
+        year = transactionDate.getFullYear();
+    } else if (typeof transactionDate === "string" && transactionDate.trim()) {
+        const str = transactionDate.trim();
+        if (str.includes("/")) {
+            // Format: DD/MM/YYYY
+            const parts = str.split("/");
+            day = parseInt(parts[0], 10);
+            month = parseInt(parts[1], 10);
+            year = parseInt(parts[2], 10);
+        } else if (str.includes("-")) {
+            // Format: YYYY-MM-DD
+            const parts = str.split("-");
+            year = parseInt(parts[0], 10);
+            month = parseInt(parts[1], 10);
+            day = parseInt(parts[2], 10);
+        } else {
+            const now = new Date();
+            day = now.getDate();
+            month = now.getMonth() + 1;
+            year = now.getFullYear();
+        }
+    } else {
+        const now = new Date();
+        day = now.getDate();
+        month = now.getMonth() + 1;
+        year = now.getFullYear();
+    }
+
+    if (isNaN(day) || isNaN(month) || isNaN(year)) {
+        const now = new Date();
+        day = now.getDate();
+        month = now.getMonth() + 1;
+        year = now.getFullYear();
+    }
+
+    // Determine closing day from card or fallback to 25
+    let diaCierre = 25;
+    if (tarjeta?.diaCierre && tarjeta.diaCierre > 0) {
+        diaCierre = tarjeta.diaCierre;
+    } else if (tarjeta?.proximoCierre && tarjeta.proximoCierre.includes("/")) {
+        const parsedDay = parseInt(tarjeta.proximoCierre.split("/")[0], 10);
+        if (!isNaN(parsedDay) && parsedDay > 0) diaCierre = parsedDay;
+    }
+
+    let closingMonth = month;
+    let closingYear = year;
+
+    if (day > diaCierre) {
+        closingMonth++;
+        if (closingMonth > 12) {
+            closingMonth = 1;
+            closingYear++;
+        }
+    }
+
+    return `${String(closingMonth).padStart(2, "0")}/${closingYear}`;
+}
+
+/**
+ * Advances a DD/MM/YYYY date by exactly one month keeping the same day if possible.
+ */
+export function advanceOneMonth(dateStr?: string | null): string {
+    if (!dateStr || !dateStr.includes("/")) return "";
+    const [dStr, mStr, yStr] = dateStr.split("/");
+    const day = parseInt(dStr, 10);
+    const month = parseInt(mStr, 10);
+    const year = parseInt(yStr, 10);
+    if (isNaN(day) || isNaN(month) || isNaN(year)) return "";
+
+    let nextMonth = month + 1;
+    let nextYear = year;
+    if (nextMonth > 12) {
+        nextMonth = 1;
+        nextYear++;
+    }
+
+    // Adjust for shorter months (e.g. Feb 28/29)
+    const maxDays = new Date(nextYear, nextMonth, 0).getDate();
+    const safeDay = Math.min(day, maxDays);
+
+    return `${String(safeDay).padStart(2, "0")}/${String(nextMonth).padStart(2, "0")}/${nextYear}`;
+}
+
+/**
+ * Calculates current installment payment progress (e.g. 4/6) and remaining debt
+ * for an active instalment purchase given the registered card payments.
+ */
+export function getInstalmentProgress(
+    inst: Instalment,
+    pagos: PagoTarjeta[] = []
+): {
+    currentNumber: number;
+    totalCount: number;
+    paidCount: number;
+    remainingAmount: number;
+    isCompleted: boolean;
+} {
+    const count = Number(inst.instalmentsCount) || 1;
+    const total = Number(inst.totalAmount) || 0;
+    if (count <= 0 || total <= 0) {
+        return { currentNumber: 1, totalCount: 1, paidCount: 0, remainingAmount: 0, isCompleted: true };
+    }
+
+    const rawMonthly = total / count;
+    const monthlyAmount = Math.round(rawMonthly * 100) / 100;
+    const { month: startM, year: startY } = parseStartMonth(inst.startMonth, inst.date);
+
+    let curM = startM;
+    let curY = startY;
+    let paidCount = 0;
+    const cardName = inst.tarjeta?.trim();
+
+    for (let i = 1; i <= count; i++) {
+        const monthKey = `${String(curM).padStart(2, "0")}/${curY}`;
+        const isPaid = Boolean(cardName) && pagos.some(p =>
+            p.tarjeta?.trim().toLowerCase() === cardName!.toLowerCase() &&
+            p.period?.trim() === monthKey
+        );
+
+        if (isPaid) {
+            paidCount++;
+        }
+
+        curM++;
+        if (curM > 12) {
+            curM = 1;
+            curY++;
+        }
+    }
+
+    const isCompleted = paidCount >= count;
+    const currentNumber = isCompleted ? count : Math.min(paidCount + 1, count);
+    
+    // Remaining balance
+    let remainingAmount = 0;
+    if (!isCompleted) {
+        const paidAmount = paidCount * monthlyAmount;
+        remainingAmount = Math.max(0, Math.round((total - paidAmount) * 100) / 100);
+    }
+
+    return {
+        currentNumber,
+        totalCount: count,
+        paidCount,
+        remainingAmount,
+        isCompleted
     };
 }
 

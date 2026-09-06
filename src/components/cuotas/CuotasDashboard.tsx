@@ -7,7 +7,8 @@ import {
     PagoTarjeta,
     calculateProjectedPayments,
     TarjetaInfo,
-    DEFAULT_CARD_COLORS
+    DEFAULT_CARD_COLORS,
+    getInstalmentProgress
 } from "@/lib/utils/cuotas";
 import { Bar } from "react-chartjs-2";
 import TarjetasManager from "./TarjetasManager";
@@ -30,20 +31,14 @@ export default function CuotasDashboard() {
     const [instalments, setInstalments] = useState<Instalment[]>([]);
     const [pagos, setPagos] = useState<PagoTarjeta[]>([]);
 
-    // Form state
-    const [concept, setConcept] = useState("");
-    const [totalAmount, setTotalAmount] = useState("");
-    const [instalmentsCount, setInstalmentsCount] = useState("1");
-    const [startMonth, setStartMonth] = useState("");
     const [tarjetas, setTarjetas] = useState<TarjetaInfo[]>([]);
-    const [selectedTarjeta, setSelectedTarjeta] = useState("");
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+    const [selectedCardForPayment, setSelectedCardForPayment] = useState<TarjetaInfo | null>(null);
     
     // Summary next-month filter state
     const [nextMonthFilter, setNextMonthFilter] = useState("Total");
     const [visibleLimit, setVisibleLimit] = useState(10);
-
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [cuotasFilter, setCuotasFilter] = useState<"activas" | "todas">("activas");
 
     const fetchTarjetas = useCallback(async () => {
         try {
@@ -81,13 +76,6 @@ export default function CuotasDashboard() {
     }, []);
 
     useEffect(() => {
-        // Init Start Month as Next Month
-        const date = new Date();
-        date.setMonth(date.getMonth() + 1);
-        const mm = (date.getMonth() + 1).toString().padStart(2, '0');
-        const yyyy = date.getFullYear();
-        setStartMonth(`${mm}/${yyyy}`);
-
         fetchData();
         fetchTarjetas();
 
@@ -142,69 +130,6 @@ export default function CuotasDashboard() {
             const msg = err instanceof Error ? err.message : "Error al actualizar la cuota.";
             setErrorMsg(msg);
             throw err;
-        }
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setErrorMsg(null);
-
-        const cleanConcept = concept.trim();
-        const parsedTotal = parseFloat(totalAmount);
-        const parsedCount = parseInt(instalmentsCount, 10);
-
-        if (!cleanConcept) {
-            setErrorMsg("El concepto de la compra financiada es obligatorio.");
-            return;
-        }
-        if (isNaN(parsedTotal) || parsedTotal <= 0) {
-            setErrorMsg("El monto total a financiar debe ser mayor a cero.");
-            return;
-        }
-        if (isNaN(parsedCount) || parsedCount < 1) {
-            setErrorMsg("La cantidad de cuotas debe ser al menos 1.");
-            return;
-        }
-        if (!startMonth) {
-            setErrorMsg("El mes de inicio del pago es obligatorio.");
-            return;
-        }
-
-        setIsSubmitting(true);
-
-        const today = new Date();
-        const dd = today.getDate().toString().padStart(2, '0');
-        const mm = (today.getMonth() + 1).toString().padStart(2, '0');
-        const yyyy = today.getFullYear();
-
-        try {
-            const res = await fetch("/api/cuotas", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    date: `${dd}/${mm}/${yyyy}`,
-                    concept: cleanConcept,
-                    totalAmount: parsedTotal,
-                    instalmentsCount: parsedCount,
-                    startMonth,
-                    tarjeta: selectedTarjeta
-                })
-            });
-
-            const data = await res.json().catch(() => ({}));
-            if (res.ok) {
-                setConcept("");
-                setTotalAmount("");
-                setInstalmentsCount("1");
-                fetchData();
-            } else {
-                setErrorMsg(data.error || "Error al guardar la cuota.");
-            }
-        } catch (error: unknown) {
-            console.error(error);
-            setErrorMsg("Error de conexión al guardar la cuota. Verificá tu red.");
-        } finally {
-            setIsSubmitting(false);
         }
     };
 
@@ -318,26 +243,72 @@ export default function CuotasDashboard() {
     const instalmentColumns: ColumnDef[] = [
         { key: "date",              header: "Fecha",          editable: true,  type: "date",   width: "110px" },
         { key: "concept",           header: "Concepto",       editable: true,  type: "text",   width: "160px" },
-        { key: "total_amount",      header: "Total",          editable: true,  type: "number", width: "120px",
+        { key: "total_amount",      header: "Total",          editable: true,  type: "number", width: "110px",
           render: (val) => <span style={{ color: "var(--danger-color)", fontWeight: 600 }}>-{fmt(Number(val) || 0)}</span> },
+        { key: "progreso",          header: "Progreso",       editable: false, type: "readonly", width: "130px",
+          render: (_val, row) => {
+              const isDone = Boolean(row.is_completed) || Number(row.remaining_amount) <= 0;
+              const paid = Number(row.paid_count) || 0;
+              const total = Number(row.total_count) || 1;
+              const pct = isDone ? 100 : Math.min(100, Math.round((paid / total) * 100));
+              return (
+                  <div className={styles.progressContainer}>
+                      <span className={`${styles.progressBadge} ${isDone ? styles.progressCompleted : ""}`}>
+                          {isDone ? "✓ Pagada" : `${paid}/${total} pagadas`}
+                      </span>
+                      <div className={styles.progressTrack}>
+                          <div
+                              className={`${styles.progressBar} ${isDone ? styles.progressBarCompleted : ""}`}
+                              style={{ width: `${pct}%` }}
+                          />
+                      </div>
+                  </div>
+              );
+          }
+        },
+        { key: "resta_pagar",       header: "Resta Pagar",    editable: false, type: "readonly", width: "110px",
+          render: (_val, row) => (
+              <span style={{ color: "var(--danger-color)", fontWeight: 600 }}>
+                  {fmt(Number(row.remaining_amount) || 0)}
+              </span>
+          )
+        },
         { key: "instalments_count", header: "# Cuotas",       editable: true,  type: "number", width: "80px" },
-        { key: "cuota_mes",         header: "Cuota/mes",      editable: false, type: "readonly", width: "120px",
-          render: (_val, row) => <span style={{ color: "var(--danger-color)" }}>{fmt((Number(row.total_amount) || 0) / Math.max(Number(row.instalments_count) || 1, 1))}</span> },
+        { key: "cuota_mes",         header: "Cuota/mes",      editable: false, type: "readonly", width: "110px",
+          render: (_val, row) => <span style={{ color: "var(--text-muted)" }}>{fmt((Number(row.total_amount) || 0) / Math.max(Number(row.instalments_count) || 1, 1))}</span> },
         { key: "start_month",       header: "Desde",          editable: true,  type: "text",   width: "90px" },
         { key: "tarjeta",           header: "Tarjeta",        editable: true,  type: "select",
           options: ["", ...tarjetas.map(t => t.nombre)],  width: "120px" },
     ];
 
-    const instalmentRows = instalments.map(inst => ({
-        id: inst.id || "",
-        date: inst.date,
-        concept: inst.concept,
-        total_amount: inst.totalAmount,
-        instalments_count: inst.instalmentsCount,
-        start_month: inst.startMonth,
-        tarjeta: inst.tarjeta || "",
-    }));
+    const instalmentRows = instalments.map(inst => {
+        const progress = getInstalmentProgress(inst, pagos);
+        return {
+            id: inst.id || "",
+            date: inst.date,
+            concept: inst.concept,
+            total_amount: inst.totalAmount,
+            instalments_count: inst.instalmentsCount,
+            start_month: inst.startMonth,
+            tarjeta: inst.tarjeta || "",
+            current_number: progress.currentNumber,
+            total_count: progress.totalCount,
+            paid_count: progress.paidCount,
+            remaining_amount: progress.remainingAmount,
+            is_completed: progress.isCompleted,
+        };
+    });
 
+    const filteredInstalmentRows = useMemo(() => {
+        if (cuotasFilter === "activas") {
+            return instalmentRows.filter(row => !row.is_completed && Number(row.remaining_amount) > 0);
+        }
+        return instalmentRows;
+    }, [instalmentRows, cuotasFilter]);
+
+    const activeCount = useMemo(() => {
+        return instalmentRows.filter(row => !row.is_completed && Number(row.remaining_amount) > 0).length;
+    }, [instalmentRows]);
 
     if (loading) {
         return (
@@ -350,7 +321,7 @@ export default function CuotasDashboard() {
 
     let isDark = false;
     if (typeof window !== "undefined") {
-        isDark = document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        isDark = document.documentElement.getAttribute('data-theme') === 'dark' || (!document.documentElement.hasAttribute('data-theme') && !!window.matchMedia?.('(prefers-color-scheme: dark)')?.matches);
     }
     const chartTextColor = isDark ? '#e2e8f0' : '#475569';
     const chartGridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)';
@@ -409,16 +380,6 @@ export default function CuotasDashboard() {
                 <div className={styles.summaryCard}>
                     <span className={styles.summaryTitle}>Cuotas Activas</span>
                     <span className={styles.summaryValue} style={{ color: "var(--accent-color)" }}>{instalments.length}</span>
-                </div>
-                <div className={styles.summaryCard} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    <button
-                        className={styles.submitBtn}
-                        style={{ margin: 0, height: "100%" }}
-                        disabled={tarjetas.length === 0}
-                        onClick={() => setIsPaymentModalOpen(true)}
-                    >
-                        💳 Liquidar Tarjeta
-                    </button>
                 </div>
             </div>
 
@@ -487,112 +448,48 @@ export default function CuotasDashboard() {
                 </div>
             </section>
 
-            {/* Form */}
-            <section className={`glass-panel ${styles.card}`}>
-                <h3 className="text-muted" style={{ marginBottom: "16px" }}>Registrar Nueva Compra en Cuotas</h3>
-                <form onSubmit={handleSubmit}>
-                    <div className={styles.formGrid}>
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label}>Concepto (ej. TV 50", Viaje)</label>
-                            <input
-                                type="text"
-                                className={styles.input}
-                                value={concept}
-                                onChange={e => setConcept(e.target.value)}
-                                required
-                                placeholder="Concepto del gasto"
-                            />
-                        </div>
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label}>Monto Total (ARS)</label>
-                            <input
-                                type="number"
-                                step="any"
-                                min="0.01"
-                                className={styles.input}
-                                value={totalAmount}
-                                onChange={e => setTotalAmount(e.target.value)}
-                                required
-                                placeholder="100000"
-                            />
-                        </div>
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label}>Cantidad de Cuotas</label>
-                            <input
-                                type="number"
-                                min="1"
-                                max="72"
-                                className={styles.input}
-                                value={instalmentsCount}
-                                onChange={e => setInstalmentsCount(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label}>Mes de Inicio (MM/YYYY)</label>
-                            <input
-                                type="text"
-                                className={styles.input}
-                                value={startMonth}
-                                onFocus={e => e.target.select()}
-                                onChange={e => {
-                                    const raw = e.target.value;
-                                    if (raw.length < startMonth.length) {
-                                        if (raw.endsWith("/")) setStartMonth(raw.slice(0, -1));
-                                        else setStartMonth(raw);
-                                        return;
-                                    }
-                                    const digits = raw.replace(/\D/g, "").slice(0, 6);
-                                    if (digits.length === 0) {
-                                        setStartMonth("");
-                                    } else if (digits.length < 2) {
-                                        setStartMonth(digits);
-                                    } else if (digits.length === 2) {
-                                        setStartMonth(`${digits}/`);
-                                    } else {
-                                        setStartMonth(`${digits.slice(0, 2)}/${digits.slice(2)}`);
-                                    }
-                                }}
-                                pattern="(0[1-9]|1[0-2])\/20[0-9]{2}"
-                                required
-                                placeholder="04/2026"
-                                title="Formato MM/YYYY válido. Ejemplo: 04/2026"
-                            />
-                        </div>
-                        <div className={styles.inputGroup}>
-                            <label className={styles.label}>Tarjeta (Opcional)</label>
-                            <select
-                                className={styles.input}
-                                value={selectedTarjeta}
-                                onChange={e => setSelectedTarjeta(e.target.value)}
-                            >
-                                <option value="">- Ninguna / General -</option>
-                                {tarjetas.map(t => (
-                                    <option key={t.id} value={t.nombre}>
-                                        {t.nombre}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                    </div>
-                    <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
-                        {isSubmitting ? "Registrando..." : "Añadir a Cuotas"}
-                    </button>
-                </form>
-            </section>
-
             {/* Tarjetas Manager with Table View */}
-            <TarjetasManager />
+            <TarjetasManager
+                onLiquidarCard={(card) => {
+                    setSelectedCardForPayment(card);
+                    setIsPaymentModalOpen(true);
+                }}
+            />
 
             {/* List */}
             <section className={`glass-panel ${styles.card}`}>
-                <div className={styles.headerWithTabs} style={{ marginBottom: "16px" }}>
-                    <h3 className="text-muted">Desglose de Cuotas Activas</h3>
+                <div className={styles.headerWithTabs} style={{ marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+                    <h3 className="text-muted" style={{ margin: 0 }}>Desglose de Cuotas</h3>
+
+                    <div className={styles.radioFilterGroup} role="radiogroup" aria-label="Filtro de cuotas">
+                        <label className={`${styles.radioOption} ${cuotasFilter === "activas" ? styles.radioOptionActive : ""}`}>
+                            <input
+                                type="radio"
+                                name="cuotasFilter"
+                                value="activas"
+                                checked={cuotasFilter === "activas"}
+                                onChange={() => setCuotasFilter("activas")}
+                                className={styles.radioInput}
+                            />
+                            <span>Solo Activas ({activeCount})</span>
+                        </label>
+                        <label className={`${styles.radioOption} ${cuotasFilter === "todas" ? styles.radioOptionActive : ""}`}>
+                            <input
+                                type="radio"
+                                name="cuotasFilter"
+                                value="todas"
+                                checked={cuotasFilter === "todas"}
+                                onChange={() => setCuotasFilter("todas")}
+                                className={styles.radioInput}
+                            />
+                            <span>Mostrar Pagadas ({instalmentRows.length})</span>
+                        </label>
+                    </div>
                 </div>
 
                 <EditableTable
                     columns={instalmentColumns}
-                    rows={instalmentRows.slice(0, visibleLimit)}
+                    rows={filteredInstalmentRows.slice(0, visibleLimit)}
                     onEdit={handleEditInstalment}
                     onDelete={handleDelete}
                     idField="id"
@@ -609,10 +506,10 @@ export default function CuotasDashboard() {
                     ]}
                     defaultSortKey="date"
                     defaultSortDir="desc"
-                    emptyMessage="No hay cuotas registradas aún."
+                    emptyMessage={cuotasFilter === "activas" ? "No hay cuotas activas pendientes." : "No hay cuotas registradas aún."}
                 />
 
-                {instalmentRows.length > visibleLimit && (
+                {filteredInstalmentRows.length > visibleLimit && (
                     <button
                         type="button"
                         className={styles.submitBtn}
@@ -629,19 +526,24 @@ export default function CuotasDashboard() {
                         }}
                         onClick={() => setVisibleLimit(prev => prev + 10)}
                     >
-                        Ver más cuotas ({instalmentRows.length - visibleLimit} restantes) 👇
+                        Ver más cuotas ({filteredInstalmentRows.length - visibleLimit} restantes) 👇
                     </button>
                 )}
             </section>
-
 
             {isPaymentModalOpen && (
                 <PagoTarjetaModal
                     tarjetas={tarjetas}
                     instalments={instalments}
-                    onClose={() => setIsPaymentModalOpen(false)}
+                    pagos={pagos}
+                    targetCard={selectedCardForPayment}
+                    onClose={() => {
+                        setIsPaymentModalOpen(false);
+                        setSelectedCardForPayment(null);
+                    }}
                     onSuccess={() => {
                         setIsPaymentModalOpen(false);
+                        setSelectedCardForPayment(null);
                         fetchData();
                         fetchTarjetas();
                         window.dispatchEvent(new Event("pagos_updated"));
