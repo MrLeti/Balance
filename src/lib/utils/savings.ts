@@ -68,8 +68,8 @@ export function calculateCleanMonthlyExpense(rows: any[][]): {
     const medianItemExpense = allExpenses[Math.floor(allExpenses.length / 2)] || 0;
 
     // Outlier threshold: an expense is considered a one-off extraordinary purchase if:
-    // It exceeds 3.5x the median item expense AND is at least $250,000 ARS (to avoid capping normal small variations)
-    const outlierThreshold = Math.max(medianItemExpense * 3.5, 300000);
+    // It exceeds 4x the median item expense (derived dynamically from user spending patterns)
+    const outlierThreshold = medianItemExpense > 0 ? Math.max(medianItemExpense * 4, 150000) : 500000;
 
     let outliersFilteredCount = 0;
     const cleanMonthlyTotals: number[] = [];

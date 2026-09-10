@@ -139,6 +139,42 @@ export default function AjustesPage() {
         }
     };
 
+    const handleToggleSubscription = async (cat: CategoryItem, subcatName: string) => {
+        const current = cat.subscriptionSubcategories || [];
+        const isActive = current.includes(subcatName);
+        const updated = isActive
+            ? current.filter(s => s !== subcatName)
+            : [...current, subcatName];
+
+        // Actualización optimista
+        setCategories(prev => prev.map(c =>
+            c.id === cat.id ? { ...c, subscriptionSubcategories: updated } : c
+        ));
+
+        try {
+            const res = await fetch(`/api/categories/${cat.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ subscription_subcategories: updated }),
+            });
+            if (!res.ok) {
+                // Revertir en caso de error
+                setCategories(prev => prev.map(c =>
+                    c.id === cat.id ? { ...c, subscriptionSubcategories: current } : c
+                ));
+                alert("Error al guardar el cambio.");
+            } else {
+                notifyUpdates();
+            }
+        } catch (e) {
+            console.error(e);
+            // Revertir
+            setCategories(prev => prev.map(c =>
+                c.id === cat.id ? { ...c, subscriptionSubcategories: current } : c
+            ));
+        }
+    };
+
     const handleUpdateColor = async (catId: string, newColor: string) => {
         try {
             const res = await fetch(`/api/categories/${catId}`, {
@@ -422,9 +458,16 @@ export default function AjustesPage() {
 
                             {/* Subcategories */}
                             <div className={styles.subcategoriesSection}>
-                                <span className={styles.subcatLabel}>
-                                    Subcategorías ({cat.subcategories.length})
-                                </span>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "6px" }}>
+                                    <span className={styles.subcatLabel}>
+                                        Subcategorías ({cat.subcategories.length})
+                                    </span>
+                                    {cat.type === "Egreso" && (cat.subscriptionSubcategories?.length ?? 0) > 0 && (
+                                        <span style={{ fontSize: "0.72rem", color: "#3b82f6", fontWeight: 600 }}>
+                                            🔔 {cat.subscriptionSubcategories!.length} gasto{cat.subscriptionSubcategories!.length > 1 ? "s" : ""} fijo{cat.subscriptionSubcategories!.length > 1 ? "s" : ""}
+                                        </span>
+                                    )}
+                                </div>
 
                                 <div className={styles.subcatChips}>
                                     {cat.subcategories.length === 0 ? (
@@ -432,21 +475,43 @@ export default function AjustesPage() {
                                             Sin subcategorías aún.
                                         </span>
                                     ) : (
-                                        cat.subcategories.map(subcat => (
-                                            <div key={subcat} className={styles.chip}>
-                                                <span>{subcat}</span>
-                                                <button
-                                                    type="button"
-                                                    className={styles.chipDeleteBtn}
-                                                    title={`Eliminar subcategoría ${subcat}`}
-                                                    onClick={() => promptDeleteSubcategory(cat, subcat)}
+                                        cat.subcategories.map(subcat => {
+                                            const isSubscription = (cat.subscriptionSubcategories || []).includes(subcat);
+                                            return (
+                                                <div
+                                                    key={subcat}
+                                                    className={`${styles.chip} ${isSubscription ? styles.chipSubscription : ""}`}
                                                 >
-                                                    &times;
-                                                </button>
-                                            </div>
-                                        ))
+                                                    {cat.type === "Egreso" && (
+                                                        <button
+                                                            type="button"
+                                                            className={`${styles.chipSubscriptionBtn} ${isSubscription ? styles.active : ""}`}
+                                                            title={isSubscription ? "Quitar como gasto fijo mensual" : "Marcar como gasto fijo mensual (suscripción)"}
+                                                            onClick={() => handleToggleSubscription(cat, subcat)}
+                                                        >
+                                                            {isSubscription ? "🔔" : "○"}
+                                                        </button>
+                                                    )}
+                                                    <span>{subcat}</span>
+                                                    <button
+                                                        type="button"
+                                                        className={styles.chipDeleteBtn}
+                                                        title={`Eliminar subcategoría ${subcat}`}
+                                                        onClick={() => promptDeleteSubcategory(cat, subcat)}
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                </div>
+                                            );
+                                        })
                                     )}
                                 </div>
+
+                                {cat.type === "Egreso" && cat.subcategories.length > 0 && (
+                                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", opacity: 0.85 }}>
+                                        💡 Activá 🔔 en una subcategoría para recibir alerta si no la pagaste este mes.
+                                    </span>
+                                )}
 
                                 {/* Quick Add Subcategory Input */}
                                 <form

@@ -16,7 +16,7 @@ export async function GET() {
         // 1. Fetch from Supabase for current user
         const { data: sbData, error } = await supabase
             .from("categories")
-            .select("id, type, name, subcategories, color, created_at")
+            .select("id, type, name, subcategories, subscription_subcategories, color, created_at")
             .eq("user_id", user.id)
             .order("created_at", { ascending: true });
 
@@ -34,6 +34,9 @@ export async function GET() {
                     ? c.subcategories
                     : typeof c.subcategories === "string"
                     ? JSON.parse(c.subcategories)
+                    : [],
+                subscriptionSubcategories: Array.isArray(c.subscription_subcategories)
+                    ? c.subscription_subcategories
                     : [],
                 color: c.color || "#3b82f6",
                 createdAt: c.created_at,

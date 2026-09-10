@@ -20,13 +20,16 @@ export async function PATCH(
         if (!id) return NextResponse.json({ error: "ID inválido." }, { status: 400 });
 
         const body = await req.json();
-        const { name, color, subcategories } = body;
+        const { name, color, subcategories, subscription_subcategories } = body;
 
         const updatePayload: Record<string, any> = {};
         if (name !== undefined) updatePayload.name = String(name).trim();
         if (color !== undefined) updatePayload.color = color;
         if (subcategories !== undefined && Array.isArray(subcategories)) {
             updatePayload.subcategories = subcategories.map((s: string) => String(s).trim()).filter(Boolean);
+        }
+        if (subscription_subcategories !== undefined && Array.isArray(subscription_subcategories)) {
+            updatePayload.subscription_subcategories = subscription_subcategories.map((s: string) => String(s).trim()).filter(Boolean);
         }
 
         if (Object.keys(updatePayload).length === 0) {
@@ -74,7 +77,7 @@ export async function DELETE(
         // 1. Fetch category
         const { data: cat, error: catError } = await supabase
             .from("categories")
-            .select("id, type, name, subcategories")
+            .select("id, type, name, subcategories, subscription_subcategories")
             .eq("id", id)
             .eq("user_id", user.id)
             .maybeSingle();
@@ -96,9 +99,13 @@ export async function DELETE(
             const currentSubcats: string[] = Array.isArray(cat.subcategories) ? cat.subcategories : [];
             const updatedSubcats = currentSubcats.filter((s) => s !== subCategoryToDelete);
 
+            // También limpiar de subscription_subcategories si estaba marcada como suscripción
+            const currentSubSubs: string[] = Array.isArray(cat.subscription_subcategories) ? cat.subscription_subcategories : [];
+            const updatedSubSubs = currentSubSubs.filter((s) => s !== subCategoryToDelete);
+
             const { error: updError } = await supabase
                 .from("categories")
-                .update({ subcategories: updatedSubcats })
+                .update({ subcategories: updatedSubcats, subscription_subcategories: updatedSubSubs })
                 .eq("id", id)
                 .eq("user_id", user.id);
 

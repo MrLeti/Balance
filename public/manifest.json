@@ -3,6 +3,7 @@
     "short_name": "Vesta",
     "description": "Tu registro de finanzas personales, inteligente y sin complicaciones.",
     "start_url": "/",
+    "scope": "/",
     "display": "standalone",
     "background_color": "#0a0a0a",
     "theme_color": "#3b82f6",
@@ -31,7 +32,12 @@
                     "name": "file",
                     "accept": [
                         "image/*",
-                        "application/pdf"
+                        "application/pdf",
+                        ".jpg",
+                        ".jpeg",
+                        ".png",
+                        ".webp",
+                        ".pdf"
                     ]
                 }
             ]

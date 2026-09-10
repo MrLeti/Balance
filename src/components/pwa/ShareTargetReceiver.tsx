@@ -2,16 +2,16 @@
 
 import { useEffect } from "react";
 
-const CACHE_NAME = "vesta-shared-cache";
+const CACHE_NAME = "vesta-shared-cache-v1";
 
 export default function ShareTargetReceiver() {
     useEffect(() => {
-        // 1. Register the Service Worker for PWA Web Share Target
+        // 1. Register the Service Worker for PWA Web Share Target with explicit root scope
         if ("serviceWorker" in navigator && typeof window !== "undefined") {
             navigator.serviceWorker
-                .register("/sw.js")
+                .register("/sw.js", { scope: "/" })
                 .then((registration) => {
-                    // Check for updates
+                    // Check for updates immediately
                     registration.update().catch(() => {});
                 })
                 .catch((err) => {
@@ -46,7 +46,23 @@ export default function ShareTargetReceiver() {
             if (!("caches" in window)) return;
             try {
                 const cache = await caches.open(CACHE_NAME);
-                const response = await cache.match("/shared-file");
+                const absKey = new URL("/shared-file", window.location.origin).href;
+
+                // Match either absolute URL key or relative key
+                let response = await cache.match(absKey);
+                if (!response) {
+                    response = await cache.match("/shared-file");
+                }
+
+                // If opened via ?shared=true redirect, retry a few times to account for mobile disk write latency
+                if (!response && typeof window !== "undefined" && window.location.search.includes("shared=true")) {
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        await new Promise((resolve) => setTimeout(resolve, 200));
+                        response = (await cache.match(absKey)) || (await cache.match("/shared-file"));
+                        if (response) break;
+                    }
+                }
+
                 if (response) {
                     const blob = await response.blob();
                     const rawName = response.headers.get("X-File-Name");
@@ -54,7 +70,8 @@ export default function ShareTargetReceiver() {
                     const file = new File([blob], fileName, { type: blob.type || "image/jpeg" });
 
                     // Consume and remove from cache
-                    await cache.delete("/shared-file");
+                    await cache.delete(absKey).catch(() => {});
+                    await cache.delete("/shared-file").catch(() => {});
                     cleanUrlParams(["shared", "share_error"]);
                     emitSharedFile(file);
                 }
@@ -96,8 +113,13 @@ export default function ShareTargetReceiver() {
             }
         };
 
+        const handleControllerChange = () => {
+            void checkSharedCache();
+        };
+
         if ("serviceWorker" in navigator) {
             navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+            navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
         }
 
         // Execute initial checks on mount
@@ -107,6 +129,7 @@ export default function ShareTargetReceiver() {
         return () => {
             if ("serviceWorker" in navigator) {
                 navigator.serviceWorker.removeEventListener("message", handleServiceWorkerMessage);
+                navigator.serviceWorker.removeEventListener("controllerchange", handleControllerChange);
             }
         };
     }, []);

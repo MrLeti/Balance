@@ -42,7 +42,7 @@ export async function GET() {
         // 2. Fetch transactions from Supabase
         const { data: sbTransactions = [] } = await supabase
             .from("transactions")
-            .select("*")
+            .select("id, date, type, category, sub_category, amount, comment")
             .eq("user_id", user.id)
             .order("date", { ascending: false });
 

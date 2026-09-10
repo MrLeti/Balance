@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { fmt, parseSafeAmount } from "@/lib/utils/format";
+import { CategoryItem } from "@/lib/constants";
 import { 
     Subscription, 
     evaluateEmergencyFund, 
@@ -8,6 +9,11 @@ import {
     evaluateBudget503020, 
     detectEndingInstalments, 
     detectPositiveMilestones,
+    detectSavingsVelocity,
+    detectUnpaidSubscriptions,
+    detectInactivity,
+    detectMissingIncome,
+    detectNextMonthEndingInstalments,
     InstalmentPlan,
     IntelligenceAlert
 } from "@/lib/utils/intelligence";
@@ -23,6 +29,10 @@ interface IntelligenceAlertsProps {
     ingresos?: number;
     egresos?: number;
     instalmentsData?: InstalmentPlan[];
+    balanceHistorico?: number;
+    filteredMonthData?: any[];
+    initialSavingsGoals?: any[];
+    categories?: CategoryItem[];
 }
 
 export default function IntelligenceAlerts({
@@ -35,7 +45,11 @@ export default function IntelligenceAlerts({
     balance = 0,
     ingresos = 0,
     egresos = 0,
-    instalmentsData = []
+    instalmentsData = [],
+    balanceHistorico,
+    filteredMonthData,
+    initialSavingsGoals,
+    categories = [],
 }: IntelligenceAlertsProps) {
     // ─── Configuración del Fondo de Emergencia (Sincronizada con módulo Ahorros) ─────
     const [targetMonths, setTargetMonths] = useState<number>(6);
@@ -49,6 +63,17 @@ export default function IntelligenceAlerts({
             if (!isNaN(parsed) && parsed >= 1 && parsed <= 24) {
                 setTargetMonths(parsed);
             }
+        }
+
+        if (initialSavingsGoals && initialSavingsGoals.length > 0) {
+            const em = initialSavingsGoals.find((g: any) => g.isEmergency || g.is_emergency || g.name.toLowerCase().includes("emergencia"));
+            if (em) {
+                setEmergencyGoalSaved(em.currentSaved || 0);
+                if (em.targetMonths) {
+                    setTargetMonths(em.targetMonths);
+                }
+            }
+            return;
         }
 
         fetch("/api/savings/goals")
@@ -65,7 +90,7 @@ export default function IntelligenceAlerts({
                 }
             })
             .catch(() => {});
-    }, []);
+    }, [initialSavingsGoals]);
 
     const handleTargetMonthsChange = (newMonths: number) => {
         setTargetMonths(newMonths);
@@ -75,6 +100,7 @@ export default function IntelligenceAlerts({
     // ─── 1. Evaluación del Fondo de Emergencia ──────────────────────────────────
     // Total histórico consolidado de balance
     const balanceTotal = useMemo(() => {
+        if (typeof balanceHistorico === "number") return balanceHistorico;
         let total = 0;
         data.forEach(r => {
             if (!r || r.length < 6) return;
@@ -84,7 +110,7 @@ export default function IntelligenceAlerts({
             if (type === "Egreso") total -= val;
         });
         return total;
-    }, [data]);
+    }, [data, balanceHistorico]);
 
     const emergencyMetrics = useMemo(() => {
         return evaluateEmergencyFund(data, availableMonths, balanceTotal, targetMonths, emergencyGoalSaved);
@@ -131,7 +157,7 @@ export default function IntelligenceAlerts({
         if (spikeAlert) list.push(spikeAlert);
 
         // D. Gastos Hormiga Acumulados
-        const filteredMonthRows = useMemoFilterMonth(data, balanceMonth);
+        const filteredMonthRows = filteredMonthData || filterByMonth(data, balanceMonth);
         const microAlert = detectMicroSpending(filteredMonthRows, egresos);
         if (microAlert) list.push(microAlert);
 
@@ -139,22 +165,29 @@ export default function IntelligenceAlerts({
         const budgetAlert = evaluateBudget503020(filteredMonthRows, ingresos, egresos);
         if (budgetAlert) list.push(budgetAlert);
 
-        // F. Detección de Suscripciones
-        if (subscriptions.length > 0) {
-            list.push({
-                id: "subscriptions-detected",
-                type: "info",
-                tag: "Suscripciones",
-                title: `Identificamos ${subscriptions.length} cargo${subscriptions.length > 1 ? 's' : ''} recurrente${subscriptions.length > 1 ? 's' : ''}`,
-                message: `El más frecuente es "${subscriptions[0].concept}" por aprox. ${fmt(subscriptions[0].averageAmount)}/mes. Revisa si continúas usando todos los servicios.`,
-            });
-        }
+        // G. Gastos fijos mensuales no registrados (suscripciones marcadas manualmente)
+        const unpaidSubsAlert = detectUnpaidSubscriptions(categories, filteredMonthRows, balanceMonth);
+        if (unpaidSubsAlert) list.push(unpaidSubsAlert);
 
-        // G. Fin / Desahogo de Cuotas (Hitos de Deuda)
+        // H. Fin / Desahogo de Cuotas (este mes y próximo mes)
         const endingCuotas = detectEndingInstalments(instalmentsData);
         endingCuotas.forEach(ec => list.push(ec));
+        const nextEndingCuotas = detectNextMonthEndingInstalments(instalmentsData);
+        nextEndingCuotas.forEach(nec => list.push(nec));
 
-        // H. Logros y Récords Positivos de Ahorro
+        // I. Proyección y Velocidad de Metas de Ahorro
+        const velocityAlerts = detectSavingsVelocity(initialSavingsGoals || [], data);
+        velocityAlerts.forEach(va => list.push(va));
+
+        // J. Mes sin ingresos registrados
+        const missingIncomeAlert = detectMissingIncome(ingresos, balanceMonth);
+        if (missingIncomeAlert) list.push(missingIncomeAlert);
+
+        // K. Recordatorio de inactividad
+        const inactivityAlert = detectInactivity(data);
+        if (inactivityAlert) list.push(inactivityAlert);
+
+        // L. Logros y Récords Positivos de Ahorro
         const tan = ingresos > 0 ? ((ingresos - egresos) / ingresos) * 100 : 0;
         const positiveAlert = detectPositiveMilestones(tan, balance, ingresos);
         if (positiveAlert) list.push(positiveAlert);
@@ -162,7 +195,20 @@ export default function IntelligenceAlerts({
         // Orden de severidad: danger -> warning -> info -> success
         const priorityOrder = { danger: 1, warning: 2, info: 3, success: 4 };
         return list.sort((a, b) => priorityOrder[a.type] - priorityOrder[b.type]);
-    }, [cashflowProjection, cuotasProximas, subscriptions, data, balanceMonth, availableMonths, egresos, ingresos, balance, instalmentsData]);
+    }, [
+        cashflowProjection,
+        cuotasProximas,
+        categories,
+        data,
+        balanceMonth,
+        availableMonths,
+        egresos,
+        ingresos,
+        balance,
+        instalmentsData,
+        filteredMonthData,
+        initialSavingsGoals
+    ]);
 
     const visibleAlerts = showAllAlerts ? alerts : alerts.slice(0, 3);
 
@@ -455,7 +501,7 @@ function getAlertStyle(type: IntelligenceAlert['type']) {
 }
 
 // Helper para filtrar transacciones del mes seleccionado
-function useMemoFilterMonth(data: any[], balanceMonth: string) {
+function filterByMonth(data: any[], balanceMonth: string) {
     if (balanceMonth === "Total") return data;
     return data.filter(row => {
         if (!row || row.length < 6) return false;

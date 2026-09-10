@@ -25,8 +25,9 @@ import DashboardIncomeExpenseChart from "./DashboardIncomeExpenseChart";
 import SubNavTabs, { DashboardTabKey } from "./SubNavTabs";
 import { CATEGORY_COLORS, CategoryItem } from "@/lib/constants";
 import ConfirmDialog from "@/components/layout/ConfirmDialog";
-import { detectSubscriptions, projectEndOfMonth, calculateVestaScore, InstalmentPlan } from "@/lib/utils/intelligence";
-import { parseSafeAmount, roundMoney } from "@/lib/utils/format";
+import { projectEndOfMonth, calculateVestaScore, InstalmentPlan } from "@/lib/utils/intelligence";
+import { parseSafeAmount, roundMoney, fmt } from "@/lib/utils/format";
+import { computeFinancials } from "@/lib/utils/financials";
 import { parseStartMonth } from "@/lib/utils/cuotas";
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, Filler);
@@ -151,55 +152,60 @@ export default function DashboardData() {
     const [cuotasMesActual, setCuotasMesActual] = useState<number>(0);
     const [cuotasProximas, setCuotasProximas] = useState<number>(0);
     const [instalmentsData, setInstalmentsData] = useState<InstalmentPlan[]>([]);
+    const [savingsGoals, setSavingsGoals] = useState<any[]>([]);
 
-    // Fetch cuotas al montar — para calcular el compromiso mensual de cuotas y alertas
+    const calculateCuotasMetrics = useCallback((cuotas: InstalmentPlan[]) => {
+        const now = new Date();
+        let totalActual = 0;
+        let totalProximas = 0;
+
+        for (const inst of cuotas) {
+            const count = Number(inst.instalmentsCount) || 1;
+            const total = Number(inst.totalAmount) || 0;
+            if (count <= 0 || total <= 0) continue;
+            const monthly = Math.round((total / count) * 100) / 100;
+            const { month: sm, year: sy } = parseStartMonth(inst.startMonth, inst.date);
+            
+            const startIdx = sy * 12 + (sm - 1);
+            const endIdx = startIdx + count - 1;
+            const nowIdx = now.getFullYear() * 12 + now.getMonth();
+            
+            if (nowIdx >= startIdx && nowIdx <= endIdx) {
+                totalActual += monthly;
+            }
+
+            const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            if (daysInMonth - now.getDate() <= 7) {
+                const nextMonthIdx = nowIdx + 1;
+                if (nextMonthIdx >= startIdx && nextMonthIdx <= endIdx) {
+                    totalProximas += monthly;
+                }
+            } else if (now.getDate() <= 7) {
+                if (nowIdx >= startIdx && nowIdx <= endIdx) {
+                    totalProximas += monthly;
+                }
+            }
+        }
+        return {
+            mesActual: Math.round(totalActual * 100) / 100,
+            proximas: Math.round(totalProximas * 100) / 100,
+        };
+    }, []);
+
+    // Fallback de cuotas si /api/init no estuviese disponible
     useEffect(() => {
+        if (instalmentsData.length > 0) return;
         fetch("/api/cuotas")
             .then(r => r.ok ? r.json() : null)
             .then(json => {
                 if (!json?.data) return;
                 setInstalmentsData(json.data);
-                const now = new Date();
-                
-                let totalActual = 0;
-                let totalProximas = 0;
-
-                for (const inst of json.data) {
-                    const count = Number(inst.instalmentsCount) || 1;
-                    const total = Number(inst.totalAmount) || 0;
-                    if (count <= 0 || total <= 0) continue;
-                    const monthly = Math.round((total / count) * 100) / 100;
-                    const { month: sm, year: sy } = parseStartMonth(inst.startMonth, inst.date);
-                    
-                    const startIdx = sy * 12 + (sm - 1);
-                    const endIdx = startIdx + count - 1;
-                    const nowIdx = now.getFullYear() * 12 + now.getMonth();
-                    
-                    if (nowIdx >= startIdx && nowIdx <= endIdx) {
-                        totalActual += monthly;
-                    }
-
-                    // Vencimiento en próximos 7 días (asumiendo que vencen el día 1 del mes)
-                    // Si estamos a 7 días o menos del fin de mes, alertamos sobre las del mes que viene.
-                    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-                    if (daysInMonth - now.getDate() <= 7) {
-                        const nextMonthIdx = nowIdx + 1;
-                        if (nextMonthIdx >= startIdx && nextMonthIdx <= endIdx) {
-                            totalProximas += monthly;
-                        }
-                    } else if (now.getDate() <= 7) {
-                        // Si estamos en los primeros 7 días, alertamos sobre las de ESTE mes (ya vencieron o están por vencer)
-                        if (nowIdx >= startIdx && nowIdx <= endIdx) {
-                            totalProximas += monthly;
-                        }
-                    }
-                }
-                
-                setCuotasMesActual(Math.round(totalActual * 100) / 100);
-                setCuotasProximas(Math.round(totalProximas * 100) / 100);
+                const { mesActual, proximas } = calculateCuotasMetrics(json.data);
+                setCuotasMesActual(mesActual);
+                setCuotasProximas(proximas);
             })
             .catch(() => { /* sin cuotas — no es crítico para el dashboard */ });
-    }, []);
+    }, [instalmentsData.length, calculateCuotasMetrics]);
 
     useEffect(() => {
         const observer = new MutationObserver(() => setThemeTrigger(prev => prev + 1));
@@ -237,6 +243,43 @@ export default function DashboardData() {
 
     const fetchData = async () => {
         try {
+            // Intentar primero con /api/init (consolidado: transacciones, categorías, cuotas y metas)
+            const initRes = await fetch("/api/init");
+            if (initRes.status === 401) {
+                setFetchError("Sesión expirada. Recargá la página o volvé a iniciar sesión.");
+                setLoading(false);
+                return;
+            }
+            if (initRes.ok) {
+                const initJson = await initRes.json();
+                if (initJson && Array.isArray(initJson.transactions)) {
+                    const sortedData = initJson.transactions.sort((a: (string | number)[], b: (string | number)[]) => {
+                        return parseArgentineDate(a[1]) - parseArgentineDate(b[1]);
+                    });
+                    setData(sortedData);
+
+                    if (Array.isArray(initJson.categories) && initJson.categories.length > 0) {
+                        setDynamicCategories(initJson.categories);
+                    }
+
+                    if (Array.isArray(initJson.cuotas)) {
+                        setInstalmentsData(initJson.cuotas);
+                        const { mesActual, proximas } = calculateCuotasMetrics(initJson.cuotas);
+                        setCuotasMesActual(mesActual);
+                        setCuotasProximas(proximas);
+                    }
+
+                    if (Array.isArray(initJson.savingsGoals)) {
+                        setSavingsGoals(initJson.savingsGoals);
+                    }
+
+                    setFetchError(null);
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            // Fallback a /api/dashboard
             const res = await fetch("/api/dashboard");
             if (res.status === 401) {
                 setFetchError("Sesión expirada. Recargá la página o volvé a iniciar sesión.");
@@ -245,7 +288,7 @@ export default function DashboardData() {
             }
             if (!res.ok) throw new Error("Error fetching");
             const json = await res.json();
-            const sortedData = (json.data || []).sort((a: string[], b: string[]) => {
+            const sortedData = (json.data || []).sort((a: (string | number)[], b: (string | number)[]) => {
                 return parseArgentineDate(a[1]) - parseArgentineDate(b[1]);
             });
             setFetchError(null);
@@ -386,100 +429,27 @@ export default function DashboardData() {
     }, [data, analysisPeriod, filterByPeriod]);
 
     const { balance, ingresos, egresos, inversiones, ahorros } = useMemo(() => {
-        let b = 0; let i = 0; let e = 0; let inv = 0; let a = 0;
-        filteredData.forEach(row => {
-            if (row.length < 6) return;
-            const type = row[2];
-            const val = parseSafeAmount(row[5]);
-            const comment = String(row[6] || "").toLowerCase();
-            const subCat = String(row[4] || "").toLowerCase();
-            const category = String(row[3] || "").toLowerCase();
-            const isVenta = comment.includes("venta") || subCat.includes("rescate");
-
-            if (type === "Ingreso") {
-                i += val;
-                b += val;
-            } else if (type === "Egreso") {
-                e += val;
-                b -= val;
-            } else if (type === "Ahorro") {
-                const isRetiro = category.includes("retiro") || val < 0;
-                if (isRetiro) {
-                    b += Math.abs(val);
-                    a -= Math.abs(val);
-                } else {
-                    b -= Math.abs(val);
-                    a += Math.abs(val);
-                }
-            } else if (type === "Inversión") {
-                if (isVenta) {
-                    b += val;
-                    inv -= val;
-                } else {
-                    b -= val;
-                    inv += val;
-                }
-            }
-        });
-        return {
-            balance: roundMoney(b),
-            ingresos: roundMoney(i),
-            egresos: roundMoney(e),
-            inversiones: roundMoney(inv),
-            ahorros: roundMoney(a)
-        };
+        return computeFinancials(filteredData);
     }, [filteredData]);
+
+    const balanceHistorico = useMemo(() => {
+        return computeFinancials(data).balance;
+    }, [data]);
 
     const {
         balance: analysisBalance,
         ingresos: analysisIngresos,
         egresos: analysisEgresos
     } = useMemo(() => {
-        let b = 0; let i = 0; let e = 0;
-        analysisFilteredData.forEach(row => {
-            if (row.length < 6) return;
-            const type = row[2];
-            const val = parseSafeAmount(row[5]);
-            const comment = String(row[6] || "").toLowerCase();
-            const subCat = String(row[4] || "").toLowerCase();
-            const category = String(row[3] || "").toLowerCase();
-            const isVenta = comment.includes("venta") || subCat.includes("rescate");
-
-            if (type === "Ingreso") {
-                i += val;
-                b += val;
-            } else if (type === "Egreso") {
-                e += val;
-                b -= val;
-            } else if (type === "Ahorro") {
-                const isRetiro = category.includes("retiro") || val < 0;
-                if (isRetiro) {
-                    b += Math.abs(val);
-                } else {
-                    b -= Math.abs(val);
-                }
-            } else if (type === "Inversión") {
-                if (isVenta) {
-                    b += val;
-                } else {
-                    b -= val;
-                }
-            }
-        });
-        return {
-            balance: roundMoney(b),
-            ingresos: roundMoney(i),
-            egresos: roundMoney(e)
-        };
+        return computeFinancials(analysisFilteredData);
     }, [analysisFilteredData]);
 
-    const subscriptions = useMemo(() => detectSubscriptions(data), [data]);
     const cashflowProjection = useMemo(() => projectEndOfMonth(egresos, balanceMonth), [egresos, balanceMonth]);
     const vestaScore = useMemo(() => {
         const tan = ingresos > 0 ? ((ingresos - egresos) / ingresos) * 100 : 0;
         const dti = ingresos > 0 ? (cuotasMesActual / ingresos) * 100 : 0;
-        return calculateVestaScore(tan, dti, true, subscriptions.length > 0);
-    }, [ingresos, egresos, cuotasMesActual, subscriptions.length]);
+        return calculateVestaScore(tan, dti, true, false);
+    }, [ingresos, egresos, cuotasMesActual]);
 
     const pieData = useMemo(() => {
         const itemTotals: Record<string, number> = {};
@@ -757,11 +727,6 @@ export default function DashboardData() {
         );
     }
 
-    const fmt = (val: number) => new Intl.NumberFormat('es-AR', {
-        style: 'currency',
-        currency: 'ARS',
-    }).format(val);
-
     return (
         <>
             <SubNavTabs activeTab={activeTab} onTabChange={handleTabChange} />
@@ -804,7 +769,7 @@ export default function DashboardData() {
 
                     <IntelligenceAlerts 
                         cashflowProjection={cashflowProjection} 
-                        subscriptions={subscriptions} 
+                        subscriptions={[]} 
                         cuotasProximas={cuotasProximas} 
                         availableMonths={availableMonths} 
                         data={data} 
@@ -813,6 +778,10 @@ export default function DashboardData() {
                         ingresos={ingresos}
                         egresos={egresos}
                         instalmentsData={instalmentsData}
+                        balanceHistorico={balanceHistorico}
+                        filteredMonthData={filteredData}
+                        initialSavingsGoals={savingsGoals}
+                        categories={dynamicCategories}
                     />
 
                     <DashboardIncomeExpenseChart 

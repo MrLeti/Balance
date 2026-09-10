@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from 'react';
-import { Chart as ChartJS, registerables } from 'chart.js';
+import { Chart as ChartJS, LinearScale, Tooltip, Legend } from 'chart.js';
 import { SankeyController, Flow } from 'chartjs-chart-sankey';
 import { Chart } from 'react-chartjs-2';
 import { CATEGORY_COLORS } from '@/lib/constants';
@@ -78,7 +78,7 @@ if (typeof window !== 'undefined' && !(SankeyController.prototype as any)._isCen
     };
 }
 
-ChartJS.register(...registerables, SankeyController, Flow);
+ChartJS.register(LinearScale, Tooltip, Legend, SankeyController, Flow);
 
 export default function SankeyChart({ data, isDark }: { data: Exclude<any, null>[][], isDark: boolean }) {
     const sankeyData = useMemo(() => {

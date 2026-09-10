@@ -48,6 +48,8 @@ export interface CategoryItem {
     type: "Ingreso" | "Egreso";
     name: string;
     subcategories: string[];
+    /** Subcategorías marcadas como gastos fijos mensuales (suscripciones) */
+    subscriptionSubcategories?: string[];
     color: string;
     createdAt?: string;
 }

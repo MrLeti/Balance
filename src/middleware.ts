@@ -55,7 +55,10 @@ export async function middleware(request: NextRequest) {
         pathname.startsWith("/_next/") ||
         pathname.startsWith("/api/auth/") ||
         pathname.includes(".") ||
-        pathname === "/manifest.json";
+        pathname === "/manifest.json" ||
+        pathname === "/sw.js" ||
+        pathname === "/share-target" ||
+        pathname.startsWith("/share-target");
 
     if (!user && !isPublic) {
         const url = request.nextUrl.clone();

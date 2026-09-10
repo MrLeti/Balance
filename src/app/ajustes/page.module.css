@@ -325,6 +325,40 @@
     color: var(--danger-color, #ef4444);
 }
 
+/* Chip marcado como suscripción / gasto fijo */
+.chipSubscription {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+/* Botón toggle de suscripción dentro del chip */
+.chipSubscriptionBtn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.78rem;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    transition: opacity 0.15s, transform 0.15s;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.chipSubscriptionBtn:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.chipSubscriptionBtn.active {
+    opacity: 1;
+}
+
 .addSubcatForm {
     display: flex;
     gap: 6px;
