@@ -62,6 +62,12 @@ vi.mock('react-chartjs-2', () => ({
       />
     );
   },
+  Bar: (props: any) => (
+    <div
+      data-testid="mock-bar-chart"
+      data-labels={props.data?.labels?.join(',')}
+    />
+  ),
 }));
 
 describe('Empirical Challenger 2: Milestone 3 (Data Scenarios, Empty Filtering & Gradient Robustness)', () => {

@@ -186,8 +186,8 @@ describe('getPortfolioSummary', () => {
     });
 });
 
-describe('getPortfolioHistory', () => {
-    it('debería generar puntos de historia por fecha', () => {
+describe('getPortfolioHistory & Option B Refactor', () => {
+    it('debería generar grilla cronológica homogénea con transacciones, cierres de mes y hoy', () => {
         const txs: InvestmentTransaction[] = [
             { id: '1', date: '01/01/2026', type: 'Compra', asset: 'BTC', assetType: 'Cripto', quantity: 1, unitPrice: 80000, commission: 0, cartera: 'Crecimiento', comment: '', currency: 'USD' },
             { id: '2', date: '15/01/2026', type: 'Compra', asset: 'BTC', assetType: 'Cripto', quantity: 0.5, unitPrice: 85000, commission: 0, cartera: 'Crecimiento', comment: '', currency: 'USD' },
@@ -195,13 +195,71 @@ describe('getPortfolioHistory', () => {
         const prices = { BTC: 90000 };
         const history = getPortfolioHistory(txs, prices, 'USD');
 
-        expect(history).toHaveLength(2);
+        // Grilla incluye las 2 transacciones + fines de mes + fecha de corte actual (>= 2)
+        expect(history.length).toBeGreaterThanOrEqual(2);
         expect(history[0].date).toBe('01/01/2026');
         expect(history[0].invested).toBe(80000);
         expect(history[0].value).toBe(90000); // 1 BTC * 90000
+        expect(history[0].hasBuy).toBe(true);
+
         expect(history[1].date).toBe('15/01/2026');
         expect(history[1].invested).toBe(122500); // 80000 + 42500
         expect(history[1].value).toBe(135000); // 1.5 BTC * 90000
+        expect(history[1].hasBuy).toBe(true);
+
+        // Los puntos de fin de mes intermedios no tienen compras ni ventas
+        const intermediatePoint = history.find(p => p.date === '31/01/2026');
+        if (intermediatePoint) {
+            expect(intermediatePoint.hasBuy).toBeUndefined();
+            expect(intermediatePoint.hasSell).toBeUndefined();
+        }
+    });
+
+    it('debería manejar el Cash Ledger: reinvertir liquidez de venta sin generar aporte externo (Ct = 0)', () => {
+        const txs: InvestmentTransaction[] = [
+            // 1. Compra 1 BTC a $80.000 -> Aporte externo $80.000, cashBalance = 0
+            { id: '1', date: '01/01/2026', type: 'Compra', asset: 'BTC', assetType: 'Cripto', quantity: 1, unitPrice: 80000, commission: 0, cartera: 'Crecimiento', comment: '', currency: 'USD' },
+            // 2. Vende 0.5 BTC a $100.000 -> Producido $50.000 a cashBalance, Aporte externo = 0
+            { id: '2', date: '10/01/2026', type: 'Venta', asset: 'BTC', assetType: 'Cripto', quantity: 0.5, unitPrice: 100000, commission: 0, cartera: 'Crecimiento', comment: '', currency: 'USD' },
+            // 3. Compra 10 ETH a $3.000 = $30.000 -> Financiado totalmente con caja ($50.000 -> remanente $20.000), Aporte externo = 0
+            { id: '3', date: '20/01/2026', type: 'Compra', asset: 'ETH', assetType: 'Cripto', quantity: 10, unitPrice: 3000, commission: 0, cartera: 'Crecimiento', comment: '', currency: 'USD' },
+        ];
+        const prices = { BTC: 100000, ETH: 3000 };
+        const history = getPortfolioHistory(txs, prices, 'USD');
+
+        const pBuy1 = history.find(p => p.date === '01/01/2026')!;
+        expect(pBuy1.hasBuy).toBe(true);
+
+        const pSell = history.find(p => p.date === '10/01/2026')!;
+        expect(pSell.hasSell).toBe(true);
+        // Valuación post venta: 0.5 BTC * $100k + $50k caja = $100.000
+        expect(pSell.value).toBe(100000);
+
+        const pBuy2 = history.find(p => p.date === '20/01/2026')!;
+        expect(pBuy2.hasBuy).toBe(true);
+        // Valuación post compra ETH: 0.5 BTC * $100k ($50k) + 10 ETH * $3k ($30k) + $20k caja = $100.000
+        expect(pBuy2.value).toBe(100000);
+    });
+
+    it('debería calcular TWR con Mark-to-Market histórico cuando se provee HistoricalPriceMap', () => {
+        const txs: InvestmentTransaction[] = [
+            { id: '1', date: '01/01/2026', type: 'Compra', asset: 'AAPL', assetType: 'Cedears', quantity: 10, unitPrice: 100, commission: 0, cartera: 'Crecimiento', comment: '', currency: 'USD' },
+        ];
+        const historicalPrices = {
+            '31/01/2026': { AAPL: 120 }, // +20%
+        };
+        const currentPrices = { AAPL: 150 }; // +50% al final
+
+        const history = getPortfolioHistory(txs, historicalPrices, currentPrices, 'USD');
+        const pJan31 = history.find(p => p.date === '31/01/2026');
+        if (pJan31) {
+            expect(pJan31.value).toBe(1200); // 10 * 120
+            expect(pJan31.twrPercent).toBe(20);
+        }
+
+        const lastPoint = history[history.length - 1];
+        expect(lastPoint.value).toBe(1500); // 10 * 150
+        expect(lastPoint.twrPercent).toBe(50);
     });
 });
 

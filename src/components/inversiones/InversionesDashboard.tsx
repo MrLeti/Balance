@@ -7,6 +7,7 @@ import ConfirmDialog from "@/components/layout/ConfirmDialog";
 import EditableTable, { ColumnDef, FilterDef } from "@/components/shared/EditableTable";
 import AdvancedToolsModal from "./AdvancedToolsModal";
 import ImportPortfolioModal from "./ImportPortfolioModal";
+import PerformanceBenchmarkCard from "./PerformanceBenchmarkCard";
 import {
     parseSheetRow,
     buildPortfolio,
@@ -48,6 +49,40 @@ const fmtCompact = (n: number) => {
     return fmt(n);
 };
 
+const toDateObj = (dStr: string): Date => {
+    if (!dStr) return new Date();
+    const clean = dStr.trim();
+    if (clean.includes("-")) {
+        const parts = clean.split("-").map(Number);
+        if (parts.length === 3) {
+            if (parts[0] > 1000) {
+                return new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+            const y = parts[2] < 100 ? (parts[2] < 70 ? 2000 + parts[2] : 1900 + parts[2]) : parts[2];
+            return new Date(y, parts[1] - 1, parts[0]);
+        }
+    }
+    if (clean.includes("/")) {
+        const parts = clean.split("/").map(Number);
+        if (parts.length === 3) {
+            if (parts[0] > 1000) {
+                return new Date(parts[0], parts[1] - 1, parts[2]);
+            }
+            const y = parts[2] < 100 ? (parts[2] < 70 ? 2000 + parts[2] : 1900 + parts[2]) : parts[2];
+            return new Date(y, parts[1] - 1, parts[0]);
+        }
+    }
+    const d = new Date(clean);
+    return isNaN(d.getTime()) ? new Date() : d;
+};
+
+const formatToDDMMYYYY = (d: Date): string => {
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}/${mm}/${yyyy}`;
+};
+
 export default function InversionesDashboard() {
     const [displayCurrency, setDisplayCurrency] = useState<Currency>("ARS");
     const [cclRate, setCclRate] = useState<number>(0);
@@ -63,14 +98,10 @@ export default function InversionesDashboard() {
     // Benchmark state
     const [benchmarkData, setBenchmarkData] = useState<{
         sp500: { timestamp: number; price: number }[];
+        ccl: { date: string; rate: number }[];
         mep: { date: string; rate: number }[];
         inflation: { date: string; rate: number }[];
-    }>({ sp500: [], mep: [], inflation: [] });
-
-    // Benchmark visibility toggles
-    const [showSP500, setShowSP500] = useState(true);
-    const [showMepBenchmark, setShowMepBenchmark] = useState(true);
-    const [showInflationBenchmark, setShowInflationBenchmark] = useState(true);
+    }>({ sp500: [], ccl: [], mep: [], inflation: [] });
 
     const [loading, setLoading] = useState(true);
     const [deleting, setDeleting] = useState<string | null>(null);
@@ -80,6 +111,14 @@ export default function InversionesDashboard() {
     const [filterType, setFilterType] = useState<"all" | "Compra" | "Venta" | "Split">("all");
     const [filterAsset, setFilterAsset] = useState<string>("");
     const [filterCartera, setFilterCartera] = useState<string>("all");
+
+    // Line charts date range state
+    const [lineChartRange, setLineChartRange] = useState<"all" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "custom">("all");
+    const [customDateFrom, setCustomDateFrom] = useState<string>("");
+    const [customDateTo, setCustomDateTo] = useState<string>("");
+
+    // Bar chart mode: "amounts" (Invertido vs Actual) vs "pnl" (Rendimiento %)
+    const [barChartMode, setBarChartMode] = useState<"amounts" | "pnl">("amounts");
 
     // UI state
     const [showForm, setShowForm] = useState(false);
@@ -206,14 +245,15 @@ export default function InversionesDashboard() {
                 }
             }
 
-            // Benchmark (S&P 500, MEP, Inflación)
+            // Benchmark (S&P 500, CCL, Inflación)
             try {
                 const bmRes = await fetch("/api/investments/benchmark");
                 if (bmRes.ok) {
                     const bmJson = await bmRes.json();
                     setBenchmarkData({
                         sp500: bmJson.sp500 || [],
-                        mep: bmJson.mep || [],
+                        ccl: bmJson.ccl || bmJson.mep || [],
+                        mep: bmJson.mep || bmJson.ccl || [],
                         inflation: bmJson.inflation || [],
                     });
                 }
@@ -511,40 +551,229 @@ export default function InversionesDashboard() {
         ],
     };
 
-    const barData = {
-        labels: activeHoldings.map(h => h.asset),
-        datasets: [
-            {
-                label: "Invertido",
-                data: activeHoldings.map(h => h.totalInvested),
-                backgroundColor: "rgba(59, 130, 246, 0.7)",
-                borderRadius: 6,
+    const filteredHistory = useMemo(() => {
+        if (history.length <= 1) return history;
+        const normalizedRange = (lineChartRange || "all").toLowerCase();
+        if (normalizedRange === "all" && !customDateFrom && !customDateTo) {
+            return history;
+        }
+
+        const now = new Date();
+        now.setHours(23, 59, 59, 999);
+        let startDate: Date;
+        let endDate: Date = now;
+
+        if (normalizedRange === "custom") {
+            if (!customDateFrom && !customDateTo) return history;
+            startDate = customDateFrom ? toDateObj(customDateFrom) : toDateObj(history[0].date);
+            startDate.setHours(0, 0, 0, 0);
+            endDate = customDateTo ? toDateObj(customDateTo) : now;
+            endDate.setHours(23, 59, 59, 999);
+        } else if (normalizedRange === "1m") {
+            startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate(), 0, 0, 0, 0);
+        } else if (normalizedRange === "3m") {
+            startDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate(), 0, 0, 0, 0);
+        } else if (normalizedRange === "6m") {
+            startDate = new Date(now.getFullYear(), now.getMonth() - 6, now.getDate(), 0, 0, 0, 0);
+        } else if (normalizedRange === "ytd") {
+            startDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        } else if (normalizedRange === "1y") {
+            startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        } else {
+            return history;
+        }
+
+        const startTime = startDate.getTime();
+        const endTime = endDate.getTime();
+
+        const inRange = history.filter((p) => {
+            const t = toDateObj(p.date).getTime();
+            return t >= startTime && t <= endTime;
+        });
+
+        // Buscar el último punto anterior a startDate para anclar la serie al inicio del período
+        const prevPoint = [...history].reverse().find(p => toDateObj(p.date).getTime() < startTime);
+
+        if (inRange.length === 0) {
+            if (prevPoint) {
+                const pStart: PortfolioHistoryPoint = {
+                    ...prevPoint,
+                    date: formatToDDMMYYYY(startDate),
+                    hasBuy: false,
+                    hasSell: false,
+                };
+                const pEnd: PortfolioHistoryPoint = {
+                    ...prevPoint,
+                    date: formatToDDMMYYYY(endDate),
+                    hasBuy: false,
+                    hasSell: false,
+                };
+                return [pStart, pEnd];
+            }
+            return history;
+        }
+
+        // Si el primer punto dentro de inRange es posterior a startDate y teníamos un punto anterior,
+        // sintetizamos el punto de inicio para que la gráfica arranque exactamente en startDate
+        const firstPointTime = toDateObj(inRange[0].date).getTime();
+        let result = [...inRange];
+
+        if (prevPoint && firstPointTime > startTime) {
+            const pStart: PortfolioHistoryPoint = {
+                ...prevPoint,
+                date: formatToDDMMYYYY(startDate),
+                hasBuy: false,
+                hasSell: false,
+            };
+            result = [pStart, ...result];
+        }
+
+        if (result.length < 2 && prevPoint) {
+            result = [prevPoint, ...result];
+        }
+
+        return result.length > 0 ? result : history;
+    }, [history, lineChartRange, customDateFrom, customDateTo]);
+
+    const barData = useMemo(() => {
+        const labels = activeHoldings.map(h => h.asset);
+        if (barChartMode === "amounts") {
+            return {
+                labels,
+                datasets: [
+                    {
+                        label: "Invertido",
+                        data: activeHoldings.map(h => h.totalInvested),
+                        backgroundColor: "rgba(59, 130, 246, 0.75)",
+                        borderColor: "#3b82f6",
+                        borderWidth: 1,
+                        borderRadius: 6,
+                    },
+                    {
+                        label: "Valor Actual",
+                        data: activeHoldings.map(h => h.currentValue),
+                        backgroundColor: activeHoldings.map(h =>
+                            h.currentValue >= h.totalInvested
+                                ? "rgba(34, 197, 94, 0.75)"
+                                : "rgba(239, 68, 68, 0.75)"
+                        ),
+                        borderColor: activeHoldings.map(h =>
+                            h.currentValue >= h.totalInvested
+                                ? "#22c55e"
+                                : "#ef4444"
+                        ),
+                        borderWidth: 1,
+                        borderRadius: 6,
+                    },
+                ],
+            };
+        } else {
+            return {
+                labels,
+                datasets: [
+                    {
+                        label: "Rendimiento (%)",
+                        data: activeHoldings.map(h => h.pnlPercent),
+                        backgroundColor: activeHoldings.map(h =>
+                            h.pnlPercent >= 0
+                                ? "rgba(34, 197, 94, 0.75)"
+                                : "rgba(239, 68, 68, 0.75)"
+                        ),
+                        borderColor: activeHoldings.map(h =>
+                            h.pnlPercent >= 0
+                                ? "#22c55e"
+                                : "#ef4444"
+                        ),
+                        borderWidth: 1,
+                        borderRadius: 6,
+                    }
+                ],
+            };
+        }
+    }, [activeHoldings, barChartMode]);
+
+    const barOptions = useMemo(() => ({
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: {
+            mode: 'index' as const,
+            intersect: false,
+        },
+        plugins: {
+            legend: {
+                display: barChartMode === "amounts",
+                position: "bottom" as const,
+                labels: { font: { size: 12 }, usePointStyle: true, padding: 16 },
             },
-            {
-                label: "Valor Actual",
-                data: activeHoldings.map(h => h.currentValue),
-                backgroundColor: "rgba(34, 197, 94, 0.7)",
-                borderRadius: 6,
+            tooltip: {
+                mode: 'index' as const,
+                intersect: false,
+                callbacks: {
+                    label: (context: any) => {
+                        const index = context.dataIndex;
+                        const h = activeHoldings[index];
+                        if (!h) return `${context.dataset.label}: ${context.raw}`;
+                        if (barChartMode === "pnl") {
+                            const sign = h.pnlPercent >= 0 ? "+" : "";
+                            return ` Rendimiento: ${sign}${h.pnlPercent.toFixed(2)}% (${sign}${curSymbol}${fmt(h.pnl)})`;
+                        }
+                        const val = Number(context.raw);
+                        return ` ${context.dataset.label}: ${curSymbol}${fmt(val)}`;
+                    },
+                    afterBody: (items: any[]) => {
+                        if (barChartMode === "pnl") return [];
+                        const index = items[0]?.dataIndex;
+                        const h = activeHoldings[index];
+                        if (!h) return [];
+                        const sign = h.pnlPercent >= 0 ? "+" : "";
+                        const emoji = h.pnlPercent >= 0 ? "🟢" : "🔴";
+                        return [
+                            ` `,
+                            `${emoji} Resultado Neto: ${sign}${curSymbol}${fmt(h.pnl)} (${sign}${h.pnlPercent.toFixed(2)}%)`
+                        ];
+                    }
+                }
+            }
+        },
+        scales: {
+            x: {
+                grid: { display: false },
+                ticks: {
+                    font: { size: 11 },
+                }
             },
-        ],
-    };
+            y: {
+                grid: { color: "rgba(148,163,184,0.1)" },
+                ticks: {
+                    font: { size: 11 },
+                    callback: (v: string | number) =>
+                        barChartMode === "pnl"
+                            ? `${Number(v) >= 0 ? "+" : ""}${v}%`
+                            : `${curSymbol}${fmtCompact(Number(v))}`
+                }
+            }
+        }
+    }), [barChartMode, activeHoldings, curSymbol]);
 
     const historyData = {
-        labels: history.map(p => p.date),
+        labels: filteredHistory.map(p => p.date),
         datasets: [
             {
                 label: "Valor del Portafolio",
-                data: history.map(p => p.value),
+                data: filteredHistory.map(p => p.value),
                 borderColor: "#3b82f6",
                 backgroundColor: "rgba(59, 130, 246, 0.08)",
                 fill: true,
                 tension: 0.35,
-                pointRadius: 3,
-                pointBackgroundColor: "#3b82f6",
+                pointRadius: filteredHistory.map(p => (p.hasBuy || p.hasSell) ? 6 : 2),
+                pointHoverRadius: filteredHistory.map(p => (p.hasBuy || p.hasSell) ? 8 : 4),
+                pointBackgroundColor: filteredHistory.map(p => p.hasBuy && p.hasSell ? "#f59e0b" : p.hasBuy ? "#22c55e" : p.hasSell ? "#ef4444" : "#3b82f6"),
+                pointBorderColor: filteredHistory.map(p => p.hasBuy && p.hasSell ? "#b45309" : p.hasBuy ? "#15803d" : p.hasSell ? "#b91c1c" : "#2563eb"),
+                pointBorderWidth: filteredHistory.map(p => (p.hasBuy || p.hasSell) ? 2 : 1),
             },
             {
                 label: "Capital Invertido",
-                data: history.map(p => p.invested),
+                data: filteredHistory.map(p => p.invested),
                 borderColor: "#94a3b8",
                 backgroundColor: "rgba(148, 163, 184, 0.05)",
                 fill: true,
@@ -556,189 +785,15 @@ export default function InversionesDashboard() {
         ],
     };
 
-    // ─── Multi-Benchmark Relative Performance (%) ───
-    const relativePerformanceData = React.useMemo(() => {
-        if (history.length === 0) return { labels: [], datasets: [] };
-
-        const labels = history.map(p => p.date);
-        
-        // 1. Rendimiento del portafolio (%) en cada punto usando TWR acumulado
-        const portfolioReturns = history.map(p => {
-            if (p.twrPercent !== undefined) return p.twrPercent;
-            if (p.invested <= 0) return 0;
-            return Number((((p.value - p.invested) / p.invested) * 100).toFixed(2));
-        });
-
-        // Helper para obtener cotización MEP más cercana a una fecha
-        const getClosestMepRate = (targetDateStr: string, fallbackRate: number = 1): number => {
-            if (!benchmarkData.mep || benchmarkData.mep.length === 0) return fallbackRate;
-            const [d, m, y] = targetDateStr.split("/").map(Number);
-            const isoi = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-            const targetTime = new Date(isoi).getTime();
-            let closest = benchmarkData.mep[0].rate;
-            let minDiff = Infinity;
-            for (const item of benchmarkData.mep) {
-                const diff = Math.abs(new Date(item.date).getTime() - targetTime);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    closest = item.rate;
-                }
-            }
-            return closest > 0 ? closest : fallbackRate;
-        };
-
-        const [d0, m0, y0] = history[0].date.split("/").map(Number);
-        const t0 = new Date(y0, m0 - 1, d0).getTime() / 1000;
-        const baseMep = getClosestMepRate(history[0].date, mepRate || cclRate || 1);
-
-        // 2. Rendimiento acumulado del S&P 500 (%)
-        // Si displayCurrency === 'ARS', se multiplica por el tipo de cambio para medir S&P 500 en pesos
-        let sp500Returns: number[] = [];
-        if (benchmarkData.sp500 && benchmarkData.sp500.length > 0) {
-            let baseSPPriceUSD = benchmarkData.sp500[0].price;
-            let minDiff0 = Infinity;
-            for (const b of benchmarkData.sp500) {
-                const diff = Math.abs(b.timestamp - t0);
-                if (diff < minDiff0) {
-                    minDiff0 = diff;
-                    baseSPPriceUSD = b.price;
-                }
-            }
-
-            const baseSPPrice = displayCurrency === "ARS" ? baseSPPriceUSD * baseMep : baseSPPriceUSD;
-
-            sp500Returns = history.map(p => {
-                const [d, m, y] = p.date.split("/").map(Number);
-                const ts = new Date(y, m - 1, d).getTime() / 1000;
-                let closestUSD = baseSPPriceUSD;
-                let minDiff = Infinity;
-                for (const b of benchmarkData.sp500) {
-                    const diff = Math.abs(b.timestamp - ts);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closestUSD = b.price;
-                    }
-                }
-
-                const currentMep = getClosestMepRate(p.date, baseMep);
-                const currentSPPrice = displayCurrency === "ARS" ? closestUSD * currentMep : closestUSD;
-
-                if (baseSPPrice <= 0) return 0;
-                return Number((((currentSPPrice - baseSPPrice) / baseSPPrice) * 100).toFixed(2));
-            });
-        }
-
-        // 3. Rendimiento acumulado del Dólar MEP (%)
-        let mepReturns: number[] = [];
-        if (benchmarkData.mep && benchmarkData.mep.length > 0) {
-            mepReturns = history.map(p => {
-                if (displayCurrency === "USD") {
-                    // En dólares, el dólar no tiene variación nominal propia (0%)
-                    return 0;
-                }
-                const currentMep = getClosestMepRate(p.date, baseMep);
-                if (baseMep <= 0) return 0;
-                return Number((((currentMep - baseMep) / baseMep) * 100).toFixed(2));
-            });
-        }
-
-        // 4. Rendimiento acumulado de la Inflación IPC (%)
-        let inflationReturns: number[] = [];
-        if (benchmarkData.inflation && benchmarkData.inflation.length > 0) {
-            const date0 = new Date(y0, m0 - 1, d0);
-            const sortedInf = [...benchmarkData.inflation].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-            inflationReturns = history.map(p => {
-                const [d, m, y] = p.date.split("/").map(Number);
-                const targetDate = new Date(y, m - 1, d);
-                
-                let cumFactor = 1.0;
-                for (const item of sortedInf) {
-                    const itemDate = new Date(item.date);
-                    if (itemDate >= date0 && itemDate <= targetDate) {
-                        cumFactor *= (1 + (item.rate / 100));
-                    }
-                }
-
-                if (displayCurrency === "USD") {
-                    // Inflación en términos de USD (ajustada por devaluación del MEP)
-                    const currentMep = getClosestMepRate(p.date, baseMep);
-                    const fxDevaluationFactor = baseMep > 0 ? (currentMep / baseMep) : 1;
-                    const usdInflationFactor = fxDevaluationFactor > 0 ? (cumFactor / fxDevaluationFactor) : cumFactor;
-                    return Number(((usdInflationFactor - 1) * 100).toFixed(2));
-                }
-
-                return Number(((cumFactor - 1) * 100).toFixed(2));
-            });
-        }
-
-        // Armar datasets según visibilidad
-        const datasets: any[] = [
-            {
-                label: `Portafolio TWR (${displayCurrency})`,
-                data: portfolioReturns,
-                borderColor: "#3b82f6",
-                backgroundColor: "rgba(59, 130, 246, 0.12)",
-                fill: true,
-                tension: 0.35,
-                pointRadius: 3,
-                pointBackgroundColor: "#3b82f6",
-            },
-        ];
-
-        if (showSP500 && sp500Returns.length > 0) {
-            datasets.push({
-                label: `S&P 500 (${displayCurrency})`,
-                data: sp500Returns,
-                borderColor: "#f59e0b",
-                backgroundColor: "transparent",
-                fill: false,
-                tension: 0.35,
-                pointRadius: 2,
-                pointBackgroundColor: "#f59e0b",
-                borderDash: [4, 4],
-            });
-        }
-
-        if (showMepBenchmark && displayCurrency === "ARS" && mepReturns.length > 0) {
-            datasets.push({
-                label: "Dólar MEP (ARS)",
-                data: mepReturns,
-                borderColor: "#10b981",
-                backgroundColor: "transparent",
-                fill: false,
-                tension: 0.35,
-                pointRadius: 2,
-                pointBackgroundColor: "#10b981",
-                borderDash: [6, 3],
-            });
-        }
-
-        if (showInflationBenchmark && inflationReturns.length > 0) {
-            datasets.push({
-                label: displayCurrency === "USD" ? "Inflación en USD (%)" : "Inflación IPC (ARS)",
-                data: inflationReturns,
-                borderColor: "#ef4444",
-                backgroundColor: "transparent",
-                fill: false,
-                tension: 0.35,
-                pointRadius: 2,
-                pointBackgroundColor: "#ef4444",
-                borderDash: [2, 2],
-            });
-        }
-
-        return { labels, datasets };
-    }, [history, benchmarkData, displayCurrency, mepRate, cclRate, showSP500, showMepBenchmark, showInflationBenchmark]);
 
     const historyCarteraData = {
-        labels: history.map(p => p.date),
+        labels: filteredHistory.map(p => p.date),
         datasets: CARTERAS.map((c, i) => {
             const colors = ["#22c55e", "#f59e0b", "#3b82f6", "#ef4444"];
             const color = colors[i % colors.length];
             return {
                 label: `Valor en ${c}`,
-                data: history.map(p => p.valueByCartera?.[c] || 0),
+                data: filteredHistory.map(p => p.valueByCartera?.[c] || 0),
                 borderColor: color,
                 backgroundColor: color + "15",
                 fill: true,
@@ -765,39 +820,46 @@ export default function InversionesDashboard() {
             tooltip: {
                 mode: 'index' as const,
                 intersect: false,
+                callbacks: {
+                    afterBody: (tooltipItems: any[]) => {
+                        const index = tooltipItems[0]?.dataIndex;
+                        if (index !== undefined && filteredHistory[index]) {
+                            const pt = filteredHistory[index];
+                            if (pt.hasBuy && pt.hasSell) return [`\n📌 Operaciones: ▲ Compra y ▼ Venta`];
+                            if (pt.hasBuy) return [`\n📌 Operación: ▲ Compra`];
+                            if (pt.hasSell) return [`\n📌 Operación: ▼ Venta`];
+                        }
+                        return [];
+                    }
+                }
             }
         },
         scales: {
-            x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+            x: {
+                grid: { display: false },
+                ticks: {
+                    font: { size: 11 },
+                    autoSkip: true,
+                    maxTicksLimit: 10,
+                    maxRotation: 45,
+                    minRotation: 0,
+                    callback: function(this: any, val: string | number) {
+                        const label = this.getLabelForValue(val as number);
+                        if (typeof label === "string" && label.length >= 8) {
+                            const parts = label.split("/");
+                            if (parts.length === 3) {
+                                return `${parts[0]}/${parts[1]}/${parts[2].slice(-2)}`;
+                            }
+                        }
+                        return label;
+                    }
+                }
+            },
             y: {
                 grid: { color: "rgba(148,163,184,0.1)" },
                 ticks: {
                     font: { size: 11 },
                     callback: (v: string | number) => `${curSymbol}${fmtCompact(Number(v))}`,
-                },
-            },
-        },
-    };
-
-    const chartOptionsPercent = {
-        ...chartOptions,
-        plugins: {
-            ...chartOptions.plugins,
-            tooltip: {
-                mode: 'index' as const,
-                intersect: false,
-                callbacks: {
-                    label: (context: any) => `${context.dataset.label}: ${context.raw >= 0 ? '+' : ''}${context.raw}%`
-                }
-            }
-        },
-        scales: {
-            ...chartOptions.scales,
-            y: {
-                grid: { color: "rgba(148,163,184,0.1)" },
-                ticks: {
-                    font: { size: 11 },
-                    callback: (v: string | number) => `${Number(v) >= 0 ? '+' : ''}${v}%`,
                 },
             },
         },
@@ -1122,9 +1184,31 @@ export default function InversionesDashboard() {
                     </section>
 
                     <section className={`glass-panel ${styles.section} ${styles.chartCard}`}>
-                        <h3 style={{ marginBottom: 12 }}>Invertido vs. Actual ({displayCurrency})</h3>
+                        <div className={styles.cardHeaderWithControls}>
+                            <h3>
+                                {barChartMode === "amounts"
+                                    ? `Invertido vs. Actual (${displayCurrency})`
+                                    : "Rendimiento por Activo (%)"}
+                            </h3>
+                            <div className={styles.barModeToggle}>
+                                <button
+                                    type="button"
+                                    className={`${styles.modePillBtn} ${barChartMode === "amounts" ? styles.modePillActive : ""}`}
+                                    onClick={() => setBarChartMode("amounts")}
+                                >
+                                    Montos ($)
+                                </button>
+                                <button
+                                    type="button"
+                                    className={`${styles.modePillBtn} ${barChartMode === "pnl" ? styles.modePillActive : ""}`}
+                                    onClick={() => setBarChartMode("pnl")}
+                                >
+                                    Rendimiento (%)
+                                </button>
+                            </div>
+                        </div>
                         <div className={styles.chartContainer}>
-                            <Bar data={barData} options={chartOptions} />
+                            <Bar data={barData} options={barOptions} />
                         </div>
                     </section>
                 </div>
@@ -1133,52 +1217,91 @@ export default function InversionesDashboard() {
             {/* ── Portfolio Evolution Line Charts ── */}
             {history.length > 1 && (
                 <>
+                {/* ── Line Charts Date Range Toolbar ── */}
+                <div className={styles.dateRangeToolbar}>
+                    <div className={styles.dateRangeTitle}>
+                        <span>📅 Período de Evolución:</span>
+                    </div>
+                    <div className={styles.dateRangeControls}>
+                        <div className={styles.presetGroup}>
+                            {(
+                                [
+                                    { label: "Todo", value: "all" },
+                                    { label: "1M", value: "1m" },
+                                    { label: "3M", value: "3m" },
+                                    { label: "6M", value: "6m" },
+                                    { label: "Este año", value: "ytd" },
+                                    { label: "1A", value: "1y" },
+                                    { label: "Personalizado", value: "custom" },
+                                ] as const
+                            ).map(preset => (
+                                <button
+                                    key={preset.value}
+                                    type="button"
+                                    className={`${styles.presetBtn} ${lineChartRange === preset.value ? styles.presetBtnActive : ""}`}
+                                    onClick={() => setLineChartRange(preset.value)}
+                                >
+                                    {preset.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {lineChartRange === "custom" && (
+                            <div className={styles.customDateInputs}>
+                                <div className={styles.dateFieldGroup}>
+                                    <label className={styles.dateFieldLabel}>Desde:</label>
+                                    <input
+                                        type="date"
+                                        className={styles.dateInput}
+                                        value={customDateFrom}
+                                        onChange={e => setCustomDateFrom(e.target.value)}
+                                    />
+                                </div>
+                                <div className={styles.dateFieldGroup}>
+                                    <label className={styles.dateFieldLabel}>Hasta:</label>
+                                    <input
+                                        type="date"
+                                        className={styles.dateInput}
+                                        value={customDateTo}
+                                        onChange={e => setCustomDateTo(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
                 <section className={`glass-panel ${styles.section}`}>
                     <h3 style={{ marginBottom: 12 }}>Evolución del Portafolio ({displayCurrency})</h3>
                     <div className={styles.chartContainerWide}>
-                        <Line data={historyData} options={chartOptions} />
+                        <Line
+                            key={`port-evo-${lineChartRange}-${customDateFrom}-${customDateTo}-${filteredHistory.length}`}
+                            data={historyData}
+                            options={chartOptions}
+                        />
                     </div>
                 </section>
 
-                <section className={`glass-panel ${styles.section}`}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
-                        <h3 style={{ margin: 0 }}>Rendimiento Acumulado (% vs. Benchmarks)</h3>
-                        <div className={styles.benchmarkToggles}>
-                            <button
-                                type="button"
-                                className={`${styles.benchmarkChip} ${showSP500 ? styles.benchmarkChipActive : ""}`}
-                                onClick={() => setShowSP500(!showSP500)}
-                            >
-                                <span className={styles.chipDot} style={{ backgroundColor: "#f59e0b" }} />
-                                S&P 500
-                            </button>
-                            <button
-                                type="button"
-                                className={`${styles.benchmarkChip} ${showMepBenchmark ? styles.benchmarkChipActive : ""}`}
-                                onClick={() => setShowMepBenchmark(!showMepBenchmark)}
-                            >
-                                <span className={styles.chipDot} style={{ backgroundColor: "#10b981" }} />
-                                Dólar MEP
-                            </button>
-                            <button
-                                type="button"
-                                className={`${styles.benchmarkChip} ${showInflationBenchmark ? styles.benchmarkChipActive : ""}`}
-                                onClick={() => setShowInflationBenchmark(!showInflationBenchmark)}
-                            >
-                                <span className={styles.chipDot} style={{ backgroundColor: "#ef4444" }} />
-                                Inflación IPC
-                            </button>
-                        </div>
-                    </div>
-                    <div className={styles.chartContainerWide}>
-                        <Line data={relativePerformanceData} options={chartOptionsPercent} />
-                    </div>
-                </section>
+                <PerformanceBenchmarkCard
+                    transactions={transactions}
+                    activePrices={activePrices}
+                    displayCurrency={displayCurrency}
+                    cclRate={cclRate}
+                    mepRate={mepRate}
+                    benchmarkData={benchmarkData}
+                    dateRangePreset={lineChartRange}
+                    customDateFrom={customDateFrom}
+                    customDateTo={customDateTo}
+                />
 
                 <section className={`glass-panel ${styles.section}`}>
                     <h3 style={{ marginBottom: 12 }}>Evolución por Cartera ({displayCurrency})</h3>
                     <div className={styles.chartContainerWide}>
-                        <Line data={historyCarteraData} options={chartOptionsStacked} />
+                        <Line
+                            key={`cartera-evo-${lineChartRange}-${customDateFrom}-${customDateTo}-${filteredHistory.length}`}
+                            data={historyCarteraData}
+                            options={chartOptionsStacked}
+                        />
                     </div>
                 </section>
                 </>
@@ -1240,7 +1363,7 @@ export default function InversionesDashboard() {
                 </div>
                 <div className={styles.sourcesGrid}>
                     <div className={styles.sourceItem}>
-                        <span className={styles.sourceTag}>💵 Dólar MEP</span>
+                        <span className={styles.sourceTag}>💵 Dólar CCL</span>
                         <p className={styles.sourceDesc}>
                             Cotizaciones en vivo vía <a href="https://dolarapi.com" target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>DolarAPI</a> e histórico diario vía <a href="https://argentinadatos.com" target="_blank" rel="noopener noreferrer" className={styles.sourceLink}>ArgentinaDatos</a>.
                         </p>

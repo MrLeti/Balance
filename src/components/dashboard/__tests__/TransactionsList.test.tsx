@@ -201,4 +201,58 @@ describe('TransactionsList Integration (Tier 1-4: Movimientos View)', () => {
 
     expect(screen.getByText(/no hay movimientos registrados aún/i)).toBeDefined();
   });
+
+  it('renders select dropdowns for Tipo, Categoría, and Subcategoría during inline editing', async () => {
+    render(
+      <TransactionsList
+        transactions={sampleRawTransactions}
+        totalCount={3}
+        searchTerm=""
+        setSearchTerm={mockSetSearchTerm}
+        txLimit={20}
+        setTxLimit={mockSetTxLimit}
+        onDelete={mockOnDelete}
+        onEdit={mockOnEdit}
+      />
+    );
+
+    // 1. Click on Tipo cell ("Ingreso")
+    const table = screen.getByRole('table');
+    const withinTable = within(table);
+    const tipoCell = withinTable.getByText('Ingreso');
+    fireEvent.click(tipoCell);
+    const tipoSelect = withinTable.getByRole('combobox');
+    expect(tipoSelect.tagName).toBe('SELECT');
+    const tipoOptions = Array.from((tipoSelect as HTMLSelectElement).options).map(o => o.value);
+    expect(tipoOptions).toContain('Ingreso');
+    expect(tipoOptions).toContain('Egreso');
+    expect(tipoOptions).toContain('Ahorro');
+    expect(tipoOptions).toContain('Inversión');
+
+    // Cancel edit
+    const cancelBtn = screen.getByRole('button', { name: /✗/i });
+    fireEvent.click(cancelBtn);
+
+    // 2. Click on Categoría cell ("Alimentación" on tx-2 which is Egreso)
+    const catCell = withinTable.getByText('Alimentación');
+    fireEvent.click(catCell);
+    const catSelect = withinTable.getByRole('combobox');
+    expect(catSelect.tagName).toBe('SELECT');
+    const catOptions = Array.from((catSelect as HTMLSelectElement).options).map(o => o.value);
+    // Should include Alimentación and standard Egreso categories (Comunes, Habitacionales, etc.)
+    expect(catOptions).toContain('Alimentación');
+    expect(catOptions).toContain('Comunes');
+
+    // Cancel edit
+    const cancelBtn2 = screen.getByRole('button', { name: /✗/i });
+    fireEvent.click(cancelBtn2);
+
+    // 3. Click on Subcategoría cell ("Supermercado")
+    const subCell = withinTable.getByText('Supermercado');
+    fireEvent.click(subCell);
+    const subSelect = withinTable.getByRole('combobox');
+    expect(subSelect.tagName).toBe('SELECT');
+    const subOptions = Array.from((subSelect as HTMLSelectElement).options).map(o => o.value);
+    expect(subOptions).toContain('Supermercado');
+  });
 });

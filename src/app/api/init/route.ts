@@ -68,21 +68,43 @@ export async function GET() {
         let categories: CategoryItem[] = [];
         const sbCategories = categoriesRes.data || [];
         if (sbCategories.length > 0) {
-            categories = sbCategories.map((c) => ({
-                id: c.id,
-                type: c.type,
-                name: c.name,
-                subcategories: Array.isArray(c.subcategories)
+            const consolidatedMap = new Map<string, CategoryItem>();
+            for (const c of sbCategories) {
+                const type = c.type;
+                const name = String(c.name || "").trim();
+                const key = `${type}::${name.toLowerCase()}`;
+                const subcats: string[] = Array.isArray(c.subcategories)
                     ? c.subcategories
                     : typeof c.subcategories === "string"
                     ? JSON.parse(c.subcategories)
-                    : [],
-                subscriptionSubcategories: Array.isArray(c.subscription_subcategories)
+                    : [];
+                const subSubcats: string[] = Array.isArray(c.subscription_subcategories)
                     ? c.subscription_subcategories
-                    : [],
-                color: c.color || "#3b82f6",
-                createdAt: c.created_at,
-            }));
+                    : [];
+
+                if (!consolidatedMap.has(key)) {
+                    consolidatedMap.set(key, {
+                        id: c.id,
+                        type,
+                        name,
+                        subcategories: Array.from(new Set(subcats.map((s) => String(s).trim()).filter(Boolean))),
+                        subscriptionSubcategories: Array.from(new Set(subSubcats.map((s) => String(s).trim()).filter(Boolean))),
+                        color: c.color || "#3b82f6",
+                        createdAt: c.created_at,
+                    });
+                } else {
+                    const existing = consolidatedMap.get(key)!;
+                    existing.subcategories = Array.from(new Set([
+                        ...existing.subcategories,
+                        ...subcats.map((s) => String(s).trim()).filter(Boolean)
+                    ]));
+                    existing.subscriptionSubcategories = Array.from(new Set([
+                        ...(existing.subscriptionSubcategories || []),
+                        ...subSubcats.map((s) => String(s).trim()).filter(Boolean)
+                    ]));
+                }
+            }
+            categories = Array.from(consolidatedMap.values());
         } else {
             // Sembrar categorías por defecto si es usuario nuevo
             const seededCategories = DEFAULT_INITIAL_CATEGORIES.map((item) => ({

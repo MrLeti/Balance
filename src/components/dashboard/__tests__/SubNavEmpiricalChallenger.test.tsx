@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import SubNavTabs, { DashboardTabKey } from '../SubNavTabs';
@@ -11,6 +11,7 @@ vi.mock('../SankeyChart', () => ({
 vi.mock('react-chartjs-2', () => ({
   Pie: () => <div data-testid="pie-chart-mock">PieChart</div>,
   Line: () => <div data-testid="line-chart-mock">LineChart</div>,
+  Bar: () => <div data-testid="bar-chart-mock">BarChart</div>,
 }));
 
 describe('Empirical Challenger: Sub-Nav Navigation & View Shell', () => {

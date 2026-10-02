@@ -24,23 +24,45 @@ export async function GET() {
             console.error("Error consultando categorías en Supabase:", error);
         }
 
-        // 2. If categories exist in database, return them
+        // 2. If categories exist in database, return consolidated & deduplicated
         if (sbData && sbData.length > 0) {
-            const categories: CategoryItem[] = sbData.map((c) => ({
-                id: c.id,
-                type: c.type,
-                name: c.name,
-                subcategories: Array.isArray(c.subcategories)
+            const consolidatedMap = new Map<string, CategoryItem>();
+            for (const c of sbData) {
+                const type = c.type;
+                const name = String(c.name || "").trim();
+                const key = `${type}::${name.toLowerCase()}`;
+                const subcats: string[] = Array.isArray(c.subcategories)
                     ? c.subcategories
                     : typeof c.subcategories === "string"
                     ? JSON.parse(c.subcategories)
-                    : [],
-                subscriptionSubcategories: Array.isArray(c.subscription_subcategories)
+                    : [];
+                const subSubcats: string[] = Array.isArray(c.subscription_subcategories)
                     ? c.subscription_subcategories
-                    : [],
-                color: c.color || "#3b82f6",
-                createdAt: c.created_at,
-            }));
+                    : [];
+
+                if (!consolidatedMap.has(key)) {
+                    consolidatedMap.set(key, {
+                        id: c.id,
+                        type,
+                        name,
+                        subcategories: Array.from(new Set(subcats.map((s) => String(s).trim()).filter(Boolean))),
+                        subscriptionSubcategories: Array.from(new Set(subSubcats.map((s) => String(s).trim()).filter(Boolean))),
+                        color: c.color || "#3b82f6",
+                        createdAt: c.created_at,
+                    });
+                } else {
+                    const existing = consolidatedMap.get(key)!;
+                    existing.subcategories = Array.from(new Set([
+                        ...existing.subcategories,
+                        ...subcats.map((s) => String(s).trim()).filter(Boolean)
+                    ]));
+                    existing.subscriptionSubcategories = Array.from(new Set([
+                        ...(existing.subscriptionSubcategories || []),
+                        ...subSubcats.map((s) => String(s).trim()).filter(Boolean)
+                    ]));
+                }
+            }
+            const categories = Array.from(consolidatedMap.values());
             return NextResponse.json({ data: categories, initialized: false });
         }
 
@@ -86,6 +108,24 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: "Tipo de categoría inválido (debe ser Ingreso o Egreso)." }, { status: 400 });
         }
 
+        const cleanName = String(name).trim();
+
+        // Validar que no exista ya una categoría con el mismo nombre y tipo para este usuario
+        const { data: existingCat } = await supabase
+            .from("categories")
+            .select("id, name")
+            .eq("user_id", user.id)
+            .eq("type", type)
+            .ilike("name", cleanName)
+            .maybeSingle();
+
+        if (existingCat) {
+            return NextResponse.json(
+                { error: `Ya existe una categoría "${cleanName}" para ${type}.` },
+                { status: 400 }
+            );
+        }
+
         const id = crypto.randomUUID();
         const cleanSubcats: string[] = Array.isArray(subcategories)
             ? subcategories.map((s: string) => String(s).trim()).filter(Boolean)
@@ -95,7 +135,7 @@ export async function POST(req: NextRequest) {
             id,
             user_id: user.id,
             type,
-            name: String(name).trim(),
+            name: cleanName,
             subcategories: cleanSubcats,
             color: color || "#3b82f6",
         };

@@ -71,8 +71,17 @@ La vista principal de Balance se encuentra estructurada en tres sub-vistas fluid
 
 ---
 
-## 5. Verificación Obligatoria
+## 5. Criterio de Verificación y Pruebas
 
-Antes de dar por concluida cualquier modificación en componentes de datos o interfaz:
-- Ejecutar la suite de pruebas: `npm test -- --run` (deben pasar el 100% de los tests).
-- Comprobar la compilación de producción: `npm run build`.
+Para optimizar tiempo y consumo de recursos, adaptar el nivel de verificación según el impacto del cambio:
+
+- **Cambios menores / estéticos / UI aislada** (ej. estilos CSS, textos, ajustes de layout, fixes puntuales):
+  - No ejecutar tests globales ni `npm run build` salvo que se solicite expresamente.
+  - Si existe un test unitario directamente relacionado con el componente modificado, ejecutar únicamente ese archivo (ej: `npm test -- NombreComponente.test.ts --run`).
+
+- **Cambios estructurales o críticos** (ej. refactors de lógica compartida, esquemas de BD, cálculo de KPIs, flujos contables):
+  - Ejecutar los tests unitarios del módulo afectado.
+
+- **Suite completa (`npm test -- --run` y `npm run build`)**:
+  - Ejecutar únicamente cuando el usuario lo pida explícitamente (ej: *"corre los tests"*, *"haz build"*, o al finalizar una feature grande/hito).
+

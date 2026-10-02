@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 
 export async function GET() {
     try {
-        const [spyRes, mepRes, infRes] = await Promise.allSettled([
-            // 1. S&P 500 (SPY) from Yahoo Finance
+        const [spyRes, cclRes, infRes] = await Promise.allSettled([
+            // 1. S&P 500 (SPY) from Yahoo Finance (Total Return via adjclose)
             fetch("https://query1.finance.yahoo.com/v8/finance/chart/SPY?interval=1d&range=5y", {
                 headers: {
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -11,8 +11,8 @@ export async function GET() {
                 next: { revalidate: 3600 },
             }).then(r => r.json()),
 
-            // 2. Dólar MEP histórico from ArgentinaDatos
-            fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/bolsa", {
+            // 2. Dólar Contado con Liquidación (CCL) histórico from ArgentinaDatos
+            fetch("https://api.argentinadatos.com/v1/cotizaciones/dolares/contadoconliqui", {
                 headers: { "Accept": "application/json" },
                 next: { revalidate: 3600 },
             }).then(r => r.json()),
@@ -24,26 +24,26 @@ export async function GET() {
             }).then(r => r.json()),
         ]);
 
-        // Process SPY
+        // Process SPY - Total Return con dividendos reinvertidos (adjclose)
         let sp500: { timestamp: number; price: number }[] = [];
         if (spyRes.status === "fulfilled" && spyRes.value?.chart?.result?.[0]) {
             const res = spyRes.value.chart.result[0];
             const timestamps: number[] = res.timestamp || [];
-            const quotes: number[] = res.indicators?.quote?.[0]?.close || [];
+            const adjQuotes: number[] = res.indicators?.adjclose?.[0]?.adjclose || res.indicators?.quote?.[0]?.close || [];
             for (let i = 0; i < timestamps.length; i++) {
-                if (quotes[i] && quotes[i] > 0) {
+                if (adjQuotes[i] && adjQuotes[i] > 0) {
                     sp500.push({
                         timestamp: timestamps[i],
-                        price: quotes[i],
+                        price: adjQuotes[i],
                     });
                 }
             }
         }
 
-        // Process MEP
-        let mep: { date: string; rate: number }[] = [];
-        if (mepRes.status === "fulfilled" && Array.isArray(mepRes.value)) {
-            mep = mepRes.value.map((item: any) => ({
+        // Process CCL (Contado con Liquidación)
+        let ccl: { date: string; rate: number }[] = [];
+        if (cclRes.status === "fulfilled" && Array.isArray(cclRes.value)) {
+            ccl = cclRes.value.map((item: any) => ({
                 date: item.fecha, // "YYYY-MM-DD"
                 rate: Number(item.venta || item.compra || 0),
             })).filter(m => m.rate > 0);
@@ -60,7 +60,8 @@ export async function GET() {
 
         return NextResponse.json({
             sp500,
-            mep,
+            ccl,
+            mep: ccl, // Alias retrocompatible
             inflation,
         }, {
             headers: { 'Cache-Control': 's-maxage=3600, stale-while-revalidate=7200' }

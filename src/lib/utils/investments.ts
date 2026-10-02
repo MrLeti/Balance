@@ -51,12 +51,20 @@ export interface PortfolioSummary {
     currencyDiversification: { label: string; value: number; color: string }[];
 }
 
+export interface HistoricalPriceMap {
+    // Fecha en formato "YYYY-MM-DD" o "DD/MM/YYYY" -> Ticker -> Precio en displayCurrency
+    [date: string]: Record<string, number>;
+}
+
 export interface PortfolioHistoryPoint {
     date: string;       // "DD/MM/YYYY"
     invested: number;   // accumulated capital invested up to this date
-    value: number;      // estimated value at this point (uses last known prices)
+    value: number;      // estimated value at this point (uses market/last known prices)
     valueByCartera: Record<string, number>;
     twrPercent?: number; // cumulative Time-Weighted Return % up to this date
+    hasBuy?: boolean;   // true if one or more buy transactions occurred on this date
+    hasSell?: boolean;  // true if one or more sell transactions occurred on this date
+    operations?: ("Compra" | "Venta" | "Split")[]; // operations on this date
 }
 
 /* ─── Constants ─── */
@@ -318,80 +326,9 @@ export function calculateTWR(
     fallbackFX: number = 1
 ): number {
     if (transactions.length === 0) return 0;
-
-    const sorted = [...transactions].sort((a, b) => {
-        const [da, ma, ya] = a.date.split("/").map(Number);
-        const [db, mb, yb] = b.date.split("/").map(Number);
-        return (ya - yb) || (ma - mb) || (da - db);
-    });
-
-    const dateGroups: Record<string, InvestmentTransaction[]> = {};
-    for (const tx of sorted) {
-        if (!dateGroups[tx.date]) dateGroups[tx.date] = [];
-        dateGroups[tx.date].push(tx);
-    }
-    const dates = Object.keys(dateGroups);
-
-    let twrMultiplier = 1;
-    const runningQty: Record<string, number> = {};
-    const lastKnownPrice: Record<string, number> = {};
-    let previousValueAfter = 0;
-
-    for (const date of dates) {
-        const txs = dateGroups[date];
-
-        for (const tx of txs) {
-            if (tx.type !== "Split") {
-                const { unitPrice } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
-                lastKnownPrice[tx.asset] = unitPrice;
-            }
-        }
-
-        let valueBefore = 0;
-        for (const [asset, qty] of Object.entries(runningQty)) {
-            valueBefore += qty * (lastKnownPrice[asset] || 0);
-        }
-
-        if (previousValueAfter > 0) {
-            const r = (valueBefore - previousValueAfter) / previousValueAfter;
-            twrMultiplier *= (1 + r);
-        }
-
-        let netCashFlow = 0;
-        for (const tx of txs) {
-            const { unitPrice, commission } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
-            const grossFlow = tx.quantity * unitPrice;
-
-            if (tx.type === "Compra") {
-                runningQty[tx.asset] = (runningQty[tx.asset] || 0) + tx.quantity;
-                netCashFlow += grossFlow + commission;
-            } else if (tx.type === "Venta") {
-                runningQty[tx.asset] = Math.max(0, (runningQty[tx.asset] || 0) - tx.quantity);
-                netCashFlow -= (grossFlow - commission);
-            } else if (tx.type === "Split") {
-                const factor = tx.quantity > 0 ? tx.quantity : 1;
-                runningQty[tx.asset] = (runningQty[tx.asset] || 0) * factor;
-                if (lastKnownPrice[tx.asset]) {
-                    lastKnownPrice[tx.asset] /= factor;
-                }
-            }
-        }
-
-
-        previousValueAfter = valueBefore + netCashFlow;
-    }
-
-    let finalValue = 0;
-    for (const [asset, qty] of Object.entries(runningQty)) {
-        finalValue += qty * (currentPrices[asset] || lastKnownPrice[asset] || 0);
-    }
-
-    if (previousValueAfter > 0) {
-        const r = (finalValue - previousValueAfter) / previousValueAfter;
-        twrMultiplier *= (1 + r);
-    }
-
-    return (twrMultiplier - 1) * 100;
+    const history = getPortfolioHistory(transactions, {}, currentPrices, displayCurrency, fallbackFX);
+    if (history.length === 0) return 0;
+    return history[history.length - 1].twrPercent ?? 0;
 }
 
 /**
@@ -452,144 +389,253 @@ export function getPortfolioSummary(
     };
 }
 
-/**
- * Generates a time series of portfolio value for the evolution chart.
- */
 export function getPortfolioHistory(
     transactions: InvestmentTransaction[],
     currentPrices: Record<string, number>,
-    displayCurrency: Currency = "ARS",
-    fallbackFX: number = 1
+    displayCurrency?: Currency,
+    fallbackFX?: number
+): PortfolioHistoryPoint[];
+export function getPortfolioHistory(
+    transactions: InvestmentTransaction[],
+    historicalPrices: HistoricalPriceMap,
+    currentPrices: Record<string, number>,
+    displayCurrency?: Currency,
+    fallbackFX?: number
+): PortfolioHistoryPoint[];
+export function getPortfolioHistory(
+    transactions: InvestmentTransaction[],
+    historicalPricesOrCurrent: HistoricalPriceMap | Record<string, number> = {},
+    currentPricesOrDisplayCurrency?: Record<string, number> | Currency,
+    displayCurrencyOrFallbackFX?: Currency | number,
+    fallbackFX?: number
 ): PortfolioHistoryPoint[] {
     if (transactions.length === 0) return [];
 
-    const sorted = [...transactions].sort((a, b) => {
-        const [da, ma, ya] = a.date.split("/").map(Number);
-        const [db, mb, yb] = b.date.split("/").map(Number);
-        return (ya - yb) || (ma - mb) || (da - db);
+    // Resolver sobrecarga flexible de argumentos para retrocompatibilidad
+    let historicalPrices: HistoricalPriceMap = {};
+    let currentPrices: Record<string, number> = {};
+    let resolvedDisplayCurrency: Currency = "ARS";
+    let resolvedFallbackFX: number = 1;
+
+    if (
+        typeof currentPricesOrDisplayCurrency === "string" ||
+        currentPricesOrDisplayCurrency === undefined
+    ) {
+        // Llamada retrocompatible: (transactions, currentPrices, displayCurrency, fallbackFX)
+        historicalPrices = {};
+        currentPrices = (historicalPricesOrCurrent as Record<string, number>) || {};
+        resolvedDisplayCurrency = (currentPricesOrDisplayCurrency as Currency) || "ARS";
+        resolvedFallbackFX = typeof displayCurrencyOrFallbackFX === "number" ? displayCurrencyOrFallbackFX : 1;
+    } else {
+        // Llamada extendida: (transactions, historicalPrices, currentPrices, displayCurrency, fallbackFX)
+        historicalPrices = (historicalPricesOrCurrent as HistoricalPriceMap) || {};
+        currentPrices = currentPricesOrDisplayCurrency || {};
+        resolvedDisplayCurrency = (displayCurrencyOrFallbackFX as Currency) || "ARS";
+        resolvedFallbackFX = fallbackFX ?? 1;
+    }
+
+    const toDateObj = (dStr: string) => {
+        if (dStr.includes("-")) {
+            const [y, m, d] = dStr.split("-").map(Number);
+            return new Date(y, m - 1, d);
+        }
+        const [d, m, y] = dStr.split("/").map(Number);
+        return new Date(y, m - 1, d);
+    };
+
+    // Ordenar cronológicamente: fechas ascendentes, y para misma fecha Ventas primero
+    const opOrder: Record<string, number> = { Venta: 1, Split: 2, Compra: 3 };
+    const sortedTx = [...transactions].sort((a, b) => {
+        const diff = toDateObj(a.date).getTime() - toDateObj(b.date).getTime();
+        if (diff !== 0) return diff;
+        return (opOrder[a.type] || 0) - (opOrder[b.type] || 0);
     });
 
-    const points: PortfolioHistoryPoint[] = [];
-    const runningHoldings: Record<string, { qty: number; cost: number }> = {};
-    const runningHoldingsByCartera: Record<string, { qty: number; cost: number }> = {};
-    const lastKnownPrice: Record<string, number> = {};
+    // Grilla cronológica uniforme: Transacciones + Cierres de Mes + Hoy
+    const txDates = Array.from(new Set(sortedTx.map((t) => t.date)));
+    const startDate = toDateObj(sortedTx[0].date);
+    const now = new Date();
+    const maxTxDate = toDateObj(sortedTx[sortedTx.length - 1].date);
+    const endDate = maxTxDate > now ? maxTxDate : now;
 
+    const gridDatesSet = new Set<string>(txDates);
+
+    // Fines de mes intermedios
+    let curr = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+    while (curr <= endDate) {
+        const dd = String(curr.getDate()).padStart(2, "0");
+        const mm = String(curr.getMonth() + 1).padStart(2, "0");
+        const yyyy = curr.getFullYear();
+        gridDatesSet.add(`${dd}/${mm}/${yyyy}`);
+        curr = new Date(curr.getFullYear(), curr.getMonth() + 2, 0);
+    }
+
+    // Fecha actual
+    const todayStr = `${String(now.getDate()).padStart(2, "0")}/${String(
+        now.getMonth() + 1
+    ).padStart(2, "0")}/${now.getFullYear()}`;
+    gridDatesSet.add(todayStr);
+
+    const timeline = Array.from(gridDatesSet).sort(
+        (a, b) => toDateObj(a).getTime() - toDateObj(b).getTime()
+    );
+
+    // Tracking acumulativo
+    const runningQty: Record<string, number> = {};
+    const runningCost: Record<string, number> = {};
+    const runningQtyByCartera: Record<string, number> = {};
+    const lastKnownPrice: Record<string, number> = {};
+    let cashBalance = 0; // Caja líquida acumulada por ventas dentro del broker
     let twrMultiplier = 1.0;
     let previousValueAfter = 0;
 
-    const dateGroups: Record<string, InvestmentTransaction[]> = {};
-    for (const tx of sorted) {
-        if (!dateGroups[tx.date]) dateGroups[tx.date] = [];
-        dateGroups[tx.date].push(tx);
+    const points: PortfolioHistoryPoint[] = [];
+
+    // Agrupar transacciones por fecha
+    const txByDate: Record<string, InvestmentTransaction[]> = {};
+    for (const tx of sortedTx) {
+        if (!txByDate[tx.date]) txByDate[tx.date] = [];
+        txByDate[tx.date].push(tx);
     }
 
-    const groupEntries = Object.entries(dateGroups);
-    for (let idx = 0; idx < groupEntries.length; idx++) {
-        const [date, txs] = groupEntries[idx];
+    for (let i = 0; i < timeline.length; i++) {
+        const date = timeline[i];
+        const isLastPoint = i === timeline.length - 1;
 
-        // 1. Calculate portfolio value right before today's transactions
-        let valueBefore = 0;
-        for (const [asset, h] of Object.entries(runningHoldings)) {
-            valueBefore += h.qty * (lastKnownPrice[asset] || 0);
+        // Normalizar clave de fecha para búsqueda en historicalPrices
+        const [d, m, y] = date.split("/").map(Number);
+        const isoDate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const dayPrices = historicalPrices[date] || historicalPrices[isoDate] || {};
+
+        // Helper para resolver precio en esta fecha (Mark-to-Market)
+        const getPrice = (asset: string) => {
+            if (isLastPoint && currentPrices[asset] !== undefined && currentPrices[asset] > 0) {
+                return currentPrices[asset];
+            }
+            return dayPrices[asset] ?? currentPrices[asset] ?? lastKnownPrice[asset] ?? 0;
+        };
+
+        // A. Valuación de activos antes de las operaciones de hoy
+        let equityValueBefore = 0;
+        for (const [asset, qty] of Object.entries(runningQty)) {
+            if (qty > 0) {
+                equityValueBefore += qty * getPrice(asset);
+            }
         }
+        const totalPortfolioBefore = equityValueBefore + cashBalance;
 
+        // B. Subperíodo TWR si ya había capital invertido previamente
         if (previousValueAfter > 0) {
-            const r = (valueBefore - previousValueAfter) / previousValueAfter;
+            const r = (totalPortfolioBefore - previousValueAfter) / previousValueAfter;
             twrMultiplier *= (1 + r);
         }
 
-        let netCashFlow = 0;
-        for (const tx of txs) {
-            if (!runningHoldings[tx.asset]) {
-                runningHoldings[tx.asset] = { qty: 0, cost: 0 };
-            }
-            const h = runningHoldings[tx.asset];
+        // C. Procesamiento de operaciones y Flujos Externos (Cash Ledger)
+        let externalCapitalInflow = 0;
+        const txsToday = txByDate[date] || [];
 
-            const carteraKey = `${tx.asset}|${tx.cartera}`;
-            if (!runningHoldingsByCartera[carteraKey]) {
-                runningHoldingsByCartera[carteraKey] = { qty: 0, cost: 0 };
-            }
-            const hc = runningHoldingsByCartera[carteraKey];
-
-            const { unitPrice, commission } = getNormalizedTxPrices(tx, displayCurrency, fallbackFX);
-            const grossFlow = tx.quantity * unitPrice;
+        for (const tx of txsToday) {
+            const { unitPrice, commission } = getNormalizedTxPrices(
+                tx,
+                resolvedDisplayCurrency,
+                resolvedFallbackFX
+            );
+            const grossAmount = tx.quantity * unitPrice;
             if (unitPrice > 0) {
                 lastKnownPrice[tx.asset] = unitPrice;
             }
 
+            const carteraKey = `${tx.asset}|${tx.cartera || "Inversión General"}`;
+
             if (tx.type === "Compra") {
-                h.cost += tx.quantity * unitPrice;
-                h.qty += tx.quantity;
+                const totalBuyCost = grossAmount + commission;
+                if (cashBalance >= totalBuyCost) {
+                    // Financiado 100% con caja interna disponible
+                    cashBalance -= totalBuyCost;
+                } else {
+                    // El remanente es aporte de capital externo nuevo
+                    externalCapitalInflow += totalBuyCost - cashBalance;
+                    cashBalance = 0;
+                }
 
-                hc.cost += tx.quantity * unitPrice;
-                hc.qty += tx.quantity;
-                netCashFlow += grossFlow + commission;
+                runningQty[tx.asset] = (runningQty[tx.asset] || 0) + tx.quantity;
+                runningCost[tx.asset] = (runningCost[tx.asset] || 0) + totalBuyCost;
+                runningQtyByCartera[carteraKey] = (runningQtyByCartera[carteraKey] || 0) + tx.quantity;
             } else if (tx.type === "Venta") {
-                const avgCost = h.qty > 0 ? h.cost / h.qty : 0;
-                const sellQty = Math.min(tx.quantity, h.qty);
-                h.cost -= avgCost * sellQty;
-                h.qty -= sellQty;
-                if (h.qty < 0.000001) { h.qty = 0; h.cost = 0; }
+                const netSaleProceeds = grossAmount - commission;
+                // La venta ingresa a la liquidez de la cuenta (flujo externo = 0)
+                cashBalance += netSaleProceeds;
 
-                const avgCostC = hc.qty > 0 ? hc.cost / hc.qty : 0;
-                const sellQtyC = Math.min(tx.quantity, hc.qty);
-                hc.cost -= avgCostC * sellQtyC;
-                hc.qty -= sellQtyC;
-                if (hc.qty < 0.000001) { hc.qty = 0; hc.cost = 0; }
-                netCashFlow -= (sellQty * unitPrice - commission);
+                const currentQ = runningQty[tx.asset] || 0;
+                const sellQ = Math.min(tx.quantity, currentQ);
+                const avgCost = currentQ > 0 ? (runningCost[tx.asset] || 0) / currentQ : 0;
+
+                runningCost[tx.asset] = Math.max(0, (runningCost[tx.asset] || 0) - avgCost * sellQ);
+                runningQty[tx.asset] = Math.max(0, currentQ - sellQ);
+
+                const currentQc = runningQtyByCartera[carteraKey] || 0;
+                const sellQc = Math.min(tx.quantity, currentQc);
+                runningQtyByCartera[carteraKey] = Math.max(0, currentQc - sellQc);
             } else if (tx.type === "Split") {
-
                 const factor = tx.quantity > 0 ? tx.quantity : 1;
-                h.qty *= factor;
-                hc.qty *= factor;
+                runningQty[tx.asset] = (runningQty[tx.asset] || 0) * factor;
+                runningQtyByCartera[carteraKey] = (runningQtyByCartera[carteraKey] || 0) * factor;
                 if (lastKnownPrice[tx.asset]) {
                     lastKnownPrice[tx.asset] /= factor;
                 }
             }
         }
 
-        previousValueAfter = valueBefore + netCashFlow;
+        // D. Valuación base para el próximo subperíodo
+        previousValueAfter = totalPortfolioBefore + externalCapitalInflow;
 
-        let invested = 0;
-        let value = 0;
-        const isLastPoint = (idx === groupEntries.length - 1);
-
-        for (const [asset, h] of Object.entries(runningHoldings)) {
-            invested += h.cost;
-            const p = currentPrices[asset] || lastKnownPrice[asset] || 0;
-            value += p * h.qty;
+        // E. Generar punto para el gráfico
+        let currentInvested = 0;
+        for (const cost of Object.values(runningCost)) {
+            currentInvested += cost;
         }
 
-        // If it's the last point, reflect current price gains into the final TWR
-        let pointTWR = twrMultiplier;
-        if (isLastPoint && previousValueAfter > 0) {
-            const r = (value - previousValueAfter) / previousValueAfter;
-            pointTWR = twrMultiplier * (1 + r);
+        // Valuación post operaciones
+        let equityValueAfter = 0;
+        for (const [asset, qty] of Object.entries(runningQty)) {
+            if (qty > 0) {
+                equityValueAfter += qty * getPrice(asset);
+            }
         }
+        const currentTotalValue = equityValueAfter + cashBalance;
 
+        // Desglose por cartera
         const valueByCartera: Record<string, number> = {};
-        for (const [key, hc] of Object.entries(runningHoldingsByCartera)) {
-            const [asset, cartera] = key.split("|");
-            const p = currentPrices[asset] || lastKnownPrice[asset] || 0;
-            const currentVal = p * hc.qty;
-            valueByCartera[cartera] = (valueByCartera[cartera] || 0) + currentVal;
+        for (const [key, qty] of Object.entries(runningQtyByCartera)) {
+            if (qty > 0) {
+                const [asset, cartera] = key.split("|");
+                const p = getPrice(asset);
+                valueByCartera[cartera] = (valueByCartera[cartera] || 0) + qty * p;
+            }
         }
+        for (const c of Object.keys(valueByCartera)) {
+            valueByCartera[c] = Math.round(valueByCartera[c] * 100) / 100;
+        }
+
+        const hasBuy = txsToday.some(t => t.type === "Compra");
+        const hasSell = txsToday.some(t => t.type === "Venta");
+        const operations = txsToday.map(t => t.type);
 
         points.push({
             date,
-            invested: Math.round(invested * 100) / 100,
-            value: Math.round(value * 100) / 100,
+            invested: Math.round(currentInvested * 100) / 100,
+            value: Math.round(currentTotalValue * 100) / 100,
             valueByCartera,
-            twrPercent: Math.round((pointTWR - 1) * 10000) / 100,
+            twrPercent: Math.round((twrMultiplier - 1) * 10000) / 100,
+            hasBuy: hasBuy ? true : undefined,
+            hasSell: hasSell ? true : undefined,
+            operations: operations.length > 0 ? operations : undefined,
         });
     }
 
-    points.sort((a, b) => {
-        const [da, ma, ya] = a.date.split("/").map(Number);
-        const [db, mb, yb] = b.date.split("/").map(Number);
-        return (ya - yb) || (ma - mb) || (da - db);
-    });
-
     return points;
 }
+
+export const getPortfolioHistoryOptionB = getPortfolioHistory;
+
 

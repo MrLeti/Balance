@@ -58,6 +58,24 @@ export function fmtPct(n: number): string {
 }
 
 /**
+ * Formatea un porcentaje relativo a un valor base (por defecto 1 decimal, o entero si es exacto).
+ * Si la base es menor o igual a 0, retorna "0%".
+ * @example formatPercentOfBase(50000, 500000) → "10%"
+ * @example formatPercentOfBase(70000, 300000) → "23.3%"
+ * @example formatPercentOfBase(0, 500000)     → "0%"
+ */
+export function formatPercentOfBase(amount: number, base: number): string {
+    if (!Number.isFinite(amount) || !Number.isFinite(base) || base <= 0) return "0%";
+    const pct = (amount / base) * 100;
+    const rounded = Math.round(pct * 10) / 10;
+    if (Math.abs(rounded) < 1e-6) return "0%";
+    if (Math.abs(rounded - Math.round(rounded)) < 1e-6) {
+        return `${Math.round(rounded)}%`;
+    }
+    return `${rounded.toFixed(1)}%`;
+}
+
+/**
  * Redondea un importe a exactamente 2 decimales para dinero fiat (ARS / USD).
  * Utiliza Number.EPSILON para evitar errores clásicos de precisión de punto flotante IEEE-754 (ej. 1.005 o 0.1 + 0.2).
  */

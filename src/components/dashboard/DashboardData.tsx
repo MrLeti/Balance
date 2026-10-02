@@ -23,10 +23,13 @@ import IntelligenceAlerts from "./IntelligenceAlerts";
 import TransactionsList from "./TransactionsList";
 import DashboardIncomeExpenseChart from "./DashboardIncomeExpenseChart";
 import SubNavTabs, { DashboardTabKey } from "./SubNavTabs";
+import CostoVidaBarChart from "./CostoVidaBarChart";
+import SingleCategoryLineChart from "./SingleCategoryLineChart";
+import CategoryDistributionCard from "./CategoryDistributionCard";
 import { CATEGORY_COLORS, CategoryItem } from "@/lib/constants";
 import ConfirmDialog from "@/components/layout/ConfirmDialog";
 import { projectEndOfMonth, calculateVestaScore, InstalmentPlan } from "@/lib/utils/intelligence";
-import { parseSafeAmount, roundMoney, fmt } from "@/lib/utils/format";
+import { parseSafeAmount, roundMoney, fmt, formatPercentOfBase } from "@/lib/utils/format";
 import { computeFinancials } from "@/lib/utils/financials";
 import { parseStartMonth } from "@/lib/utils/cuotas";
 
@@ -439,7 +442,9 @@ export default function DashboardData() {
     const {
         balance: analysisBalance,
         ingresos: analysisIngresos,
-        egresos: analysisEgresos
+        egresos: analysisEgresos,
+        ahorros: analysisAhorros,
+        inversiones: analysisInversiones,
     } = useMemo(() => {
         return computeFinancials(analysisFilteredData);
     }, [analysisFilteredData]);
@@ -908,20 +913,45 @@ export default function DashboardData() {
                         <div className={styles.balanceSummary}>
                             <div className={styles.summaryRow}>
                                 <span>Ingresos</span>
-                                <span className={styles.successText}>{fmt(analysisIngresos)}</span>
+                                <span className={styles.successText}>
+                                    {fmt(analysisIngresos)} <span className={styles.percentageText}>({formatPercentOfBase(analysisIngresos, analysisIngresos)})</span>
+                                </span>
                             </div>
                             <div className={styles.summaryRow}>
                                 <span>Egresos</span>
-                                <span className={styles.dangerText}>-{fmt(analysisEgresos)}</span>
+                                <span className={styles.dangerText}>
+                                    -{fmt(analysisEgresos)} <span className={styles.percentageText}>({formatPercentOfBase(analysisEgresos, analysisIngresos)})</span>
+                                </span>
+                            </div>
+                            <div className={`${styles.summaryRow} ${styles.subtotalRow}`}>
+                                <span>Resultado Operativo</span>
+                                <span style={{ color: (analysisIngresos - analysisEgresos) >= 0 ? "var(--success-color)" : "var(--danger-color)", fontWeight: 700 }}>
+                                    {fmt(analysisIngresos - analysisEgresos)} <span className={styles.percentageText}>({formatPercentOfBase(analysisIngresos - analysisEgresos, analysisIngresos)})</span>
+                                </span>
+                            </div>
+                            <div className={styles.summaryRow}>
+                                <span>Ahorros</span>
+                                <span style={{ color: '#3b82f6', fontWeight: 600 }}>
+                                    {analysisAhorros !== 0 ? `🎯 ${fmt(analysisAhorros)}` : fmt(0)} <span className={styles.percentageText}>({formatPercentOfBase(analysisAhorros, analysisIngresos)})</span>
+                                </span>
+                            </div>
+                            <div className={styles.summaryRow}>
+                                <span>Inversiones</span>
+                                <span style={{ color: '#8b5cf6', fontWeight: 600 }}>
+                                    {analysisInversiones !== 0 ? `📈 ${fmt(analysisInversiones)}` : fmt(0)} <span className={styles.percentageText}>({formatPercentOfBase(analysisInversiones, analysisIngresos)})</span>
+                                </span>
                             </div>
                             <div className={`${styles.summaryRow} ${styles.totalRow}`}>
-                                <span>Balance</span>
+                                <span>Saldo Disponible (Resto)</span>
                                 <span style={{ color: analysisBalance >= 0 ? "var(--success-color)" : "var(--danger-color)" }}>
-                                    {fmt(analysisBalance)}
+                                    {fmt(analysisBalance)} <span className={styles.percentageText}>({formatPercentOfBase(analysisBalance, analysisIngresos)})</span>
                                 </span>
                             </div>
                         </div>
                     </section>
+
+                    {/* Distribución por Categoría (Selector de Rango y Categoría) */}
+                    <CategoryDistributionCard data={data} dynamicColorMap={dynamicColorMap} />
 
                     {/* 3. Flujo de Dinero (Cashflow - Sankey) */}
                     <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`} data-testid="card-flujo-dinero">
@@ -930,6 +960,9 @@ export default function DashboardData() {
                         </div>
                         <SankeyChart data={analysisFilteredData} isDark={isDark} />
                     </section>
+
+                    {/* Costo de Vida (Últimos 6 meses, sin puntuales) */}
+                    <CostoVidaBarChart data={data} isDark={isDark} />
 
                     {/* 4. Evolución en el Tiempo (Líneas con degradado) */}
                     <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`} data-testid="card-evolucion">
@@ -964,7 +997,7 @@ export default function DashboardData() {
                                         responsive: true,
                                         maintainAspectRatio: false,
                                         plugins: {
-                                            legend: { position: 'bottom', labels: { color: chartTextColor } }
+                                             legend: { position: 'bottom', labels: { color: chartTextColor } }
                                         },
                                         scales: {
                                             x: { ticks: { color: chartTextColor }, grid: { color: chartGridColor } },
@@ -977,6 +1010,17 @@ export default function DashboardData() {
                             )}
                         </div>
                     </section>
+
+                    {/* Evolución por Categoría o Subcategoría */}
+                    <SingleCategoryLineChart
+                        data={analysisFilteredData}
+                        analysisPeriod={analysisPeriod}
+                        isDark={isDark}
+                        groupedCompItems={groupedCompItems}
+                        subCatToCatMap={subCatToCatMap}
+                        itemTypeMap={itemTypeMap}
+                        dynamicColorMap={dynamicColorMap}
+                    />
 
                     {/* 5. Comparativa Personalizada (Líneas con degradado) */}
                     <section className={`glass-panel ${styles.card} ${styles.colSpanFull}`} data-testid="card-comparativa">
@@ -1057,6 +1101,7 @@ export default function DashboardData() {
                 setTxLimit={setTxLimit} 
                 onDelete={handleDelete}
                 onEdit={handleEditTransaction}
+                categories={dynamicCategories}
             />
         </div>
     )}

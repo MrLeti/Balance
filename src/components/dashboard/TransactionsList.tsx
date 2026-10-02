@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import styles from "./TransactionsList.module.css";
 import EditableTable, { ColumnDef, FilterDef } from "@/components/shared/EditableTable";
 import { parseSafeAmount, fmt } from "@/lib/utils/format";
+import { CATEGORIES, CategoryItem } from "@/lib/constants";
 
 interface TransactionsListProps {
     transactions: (string | number)[][];
@@ -12,6 +13,7 @@ interface TransactionsListProps {
     setTxLimit?: (limit: number) => void;
     onDelete: (tx: (string | number)[]) => void;
     onEdit: (id: string, field: string, value: unknown) => Promise<void>;
+    categories?: CategoryItem[];
 }
 
 // Map array row → plain object for EditableTable
@@ -30,38 +32,8 @@ function rowToObj(row: (string | number)[]): Record<string, unknown> {
     };
 }
 
-const COLUMNS: ColumnDef[] = [
-    { key: "date",         header: "Fecha",         editable: true,  type: "date",   width: "110px" },
-    { key: "type",         header: "Tipo",          editable: true,  type: "select", options: ["Ingreso", "Egreso", "Ahorro", "Inversión"], width: "100px" },
-    { key: "category",     header: "Categoría",     editable: true,  type: "text",   width: "140px" },
-    { key: "sub_category", header: "Subcategoría",  editable: true,  type: "text",   width: "140px" },
-    {
-        key: "amount",
-        header: "Importe",
-        editable: true,
-        type: "number",
-        width: "130px",
-        render: (val, row) => {
-            const n = parseSafeAmount(val);
-            const isIncome = row.type === "Ingreso";
-            const isDiscount = row.type === "Egreso" && n < 0;
-            const isSavingsOrInv = row.type === "Ahorro" || row.type === "Inversión";
-            const color = isIncome
-                ? "var(--success-color)"
-                : isDiscount
-                ? "var(--accent-color)"
-                : isSavingsOrInv
-                ? "var(--accent-color, #0061a4)"
-                : "var(--danger-color)";
-            const sign = isIncome ? "+" : isDiscount ? "🏷️ -" : "-";
-            return <span style={{ color, fontWeight: 600 }}>{sign}{fmt(Math.abs(n))}</span>;
-        }
-    },
-    { key: "comment",      header: "Comentario",    editable: true,  type: "text" },
-];
-
 export default function TransactionsList({
-    transactions, totalCount, searchTerm, setSearchTerm, txLimit = 20, setTxLimit, onDelete, onEdit
+    transactions, totalCount, searchTerm, setSearchTerm, txLimit = 20, setTxLimit, onDelete, onEdit, categories = []
 }: TransactionsListProps) {
     const rows = useMemo(() => transactions.map(rowToObj), [transactions]);
 
@@ -153,6 +125,109 @@ export default function TransactionsList({
         return allSubCategories;
     }, [activeFilters.category, activeFilters.type, categoryToSubCategories, typeToCategories, allSubCategories]);
 
+    const getCategoriesForType = useCallback((type: string): string[] => {
+        if (!type) return allCategories;
+
+        if (type === "Ahorro") {
+            return ["Aporte", "Retiro"];
+        }
+        if (type === "Inversión") {
+            return ["Activos Financieros"];
+        }
+
+        const dynamicCats = (categories || []).filter(c => c.type === type);
+        const dynamicNames = dynamicCats.map(c => c.name.trim()).filter(Boolean);
+
+        const fallbackMap = (CATEGORIES[type as keyof typeof CATEGORIES] || {}) as Record<string, string[]>;
+        const fallbackNames = Object.keys(fallbackMap);
+
+        const txCats = typeToCategories.has(type) ? Array.from(typeToCategories.get(type)!) : [];
+
+        return Array.from(new Set([...dynamicNames, ...fallbackNames, ...txCats]))
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+    }, [allCategories, categories, typeToCategories]);
+
+    const getSubcategoriesForCategory = useCallback((type: string, category: string): string[] => {
+        if (type === "Ahorro") {
+            return ["Fondo de Emergencia", "General", "Viaje", "Nueva PC", "Auto", "Otros ahorros"];
+        }
+        if (type === "Inversión") {
+            return ["Acciones", "Cedears", "Bonos", "ETFs", "Cripto", "Otros activos"];
+        }
+
+        if (!category) return allSubCategories;
+
+        const dynamicCats = (categories || []).filter(
+            c => (!type || c.type === type) && c.name.trim().toLowerCase() === category.trim().toLowerCase()
+        );
+        const dynamicSubcats = dynamicCats.flatMap(c => c.subcategories || []).map(s => String(s).trim()).filter(Boolean);
+
+        const fallbackMap = (type && CATEGORIES[type as keyof typeof CATEGORIES])
+            ? (CATEGORIES[type as keyof typeof CATEGORIES] as Record<string, string[]>)
+            : null;
+        const fallbackSubcats = fallbackMap && fallbackMap[category] ? fallbackMap[category] : [];
+
+        const txSubcats = categoryToSubCategories.has(category)
+            ? Array.from(categoryToSubCategories.get(category)!)
+            : [];
+
+        return Array.from(new Set([...dynamicSubcats, ...fallbackSubcats, ...txSubcats]))
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+    }, [allSubCategories, categories, categoryToSubCategories]);
+
+    const columns: ColumnDef[] = useMemo(() => [
+        { key: "date",         header: "Fecha",         editable: true,  type: "date",   width: "110px" },
+        { 
+            key: "type",         
+            header: "Tipo",          
+            editable: true,  
+            type: "select", 
+            options: ["Ingreso", "Egreso", "Ahorro", "Inversión"], 
+            width: "100px" 
+        },
+        { 
+            key: "category",     
+            header: "Categoría",     
+            editable: true,  
+            type: "select",   
+            options: (row) => getCategoriesForType(String(row.type || "")),
+            width: "140px" 
+        },
+        { 
+            key: "sub_category", 
+            header: "Subcategoría",  
+            editable: true,  
+            type: "select",   
+            options: (row) => getSubcategoriesForCategory(String(row.type || ""), String(row.category || "")),
+            width: "140px" 
+        },
+        {
+            key: "amount",
+            header: "Importe",
+            editable: true,
+            type: "number",
+            width: "130px",
+            render: (val, row) => {
+                const n = parseSafeAmount(val);
+                const isIncome = row.type === "Ingreso";
+                const isDiscount = row.type === "Egreso" && n < 0;
+                const isSavingsOrInv = row.type === "Ahorro" || row.type === "Inversión";
+                const color = isIncome
+                    ? "var(--success-color)"
+                    : isDiscount
+                    ? "var(--accent-color)"
+                    : isSavingsOrInv
+                    ? "var(--accent-color, #0061a4)"
+                    : "var(--danger-color)";
+                const sign = isIncome ? "+" : isDiscount ? "🏷️ -" : "-";
+                return <span style={{ color, fontWeight: 600 }}>{sign}{fmt(Math.abs(n))}</span>;
+            }
+        },
+        { key: "comment",      header: "Comentario",    editable: true,  type: "text" },
+    ], [getCategoriesForType, getSubcategoriesForCategory]);
+
     // Handle filter transitions preserving tree hierarchy consistency
     const handleFilterChange = (key: string, value: string) => {
         setActiveFilters((prev) => {
@@ -242,7 +317,7 @@ export default function TransactionsList({
                 <h3 className="text-muted" style={{ margin: 0 }}>Historial de Movimientos</h3>
             </div>
             <EditableTable
-                columns={COLUMNS}
+                columns={columns}
                 rows={rows}
                 onEdit={onEdit}
                 onDelete={handleDelete}

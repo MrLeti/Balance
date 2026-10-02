@@ -158,6 +158,22 @@ export default function TransactionForm({ onTransactionAdded, onCancel }: Transa
     const containerRef = useRef<HTMLDivElement>(null);
     const suggestionsRef = useRef<HTMLUListElement>(null);
 
+    // Split factor tooltip state
+    const [showSplitHelp, setShowSplitHelp] = useState(false);
+    const splitHelpRef = useRef<HTMLDivElement>(null);
+
+    // Close split help on outside click
+    useEffect(() => {
+        if (!showSplitHelp) return;
+        const handleClickOutside = (e: MouseEvent) => {
+            if (splitHelpRef.current && !splitHelpRef.current.contains(e.target as Node)) {
+                setShowSplitHelp(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [showSplitHelp]);
+
     // Fetch dollar rate for a specific date (defaults to today's MEP)
     const fetchFxRateForDate = useCallback(async (dateStr: string) => {
         try {
@@ -493,16 +509,63 @@ export default function TransactionForm({ onTransactionAdded, onCancel }: Transa
 
                 {/* Quantity */}
                 <div className={styles.field}>
-                    <label className={styles.label} htmlFor="inv-quantity">
-                        {isSplit ? "Factor de Split (ej. 10 para 10 a 1)" : "Cantidad"}
-                    </label>
+                    <div className={styles.labelRow}>
+                        <label className={styles.label} htmlFor="inv-quantity">
+                            {isSplit ? "Factor de Split" : "Cantidad"}
+                        </label>
+                        {isSplit && (
+                            <div className={styles.helpWrapper} ref={splitHelpRef}>
+                                <button
+                                    type="button"
+                                    className={styles.helpBtn}
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        setShowSplitHelp(prev => !prev);
+                                    }}
+                                    aria-label="Ayuda sobre el factor de split"
+                                    title="¿Cómo calcular el factor de split?"
+                                >
+                                    ?
+                                </button>
+                                <div className={`${styles.helpTooltip} ${showSplitHelp ? styles.helpTooltipVisible : ""}`}>
+                                    <div className={styles.tooltipHeader}>
+                                        <span className={styles.tooltipTitle}>¿Cómo calcular el factor?</span>
+                                        <button
+                                            type="button"
+                                            className={styles.tooltipClose}
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                setShowSplitHelp(false);
+                                            }}
+                                            aria-label="Cerrar ayuda"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                    <p className={styles.tooltipText}>
+                                        Multiplicador directo por el que aumentan tus títulos:
+                                    </p>
+                                    <div className={styles.tooltipExamples}>
+                                        <div className={styles.tooltipExampleItem}>
+                                            <span className={styles.exampleTitle}>Split tradicional (ej. 10 a 1):</span>
+                                            <span>Ingresá <strong>10</strong></span>
+                                        </div>
+                                        <div className={styles.tooltipExampleItem}>
+                                            <span className={styles.exampleTitle}>Cambio de ratio CEDEAR / ETF:</span>
+                                            <span>Dividí el ratio nuevo por el anterior. Ej: de 20:1 a 60:1, ingresá <strong>3</strong> (60 ÷ 20).</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                     <input
                         id="inv-quantity"
                         type="number"
                         step="any"
                         min="0"
                         className={styles.input}
-                        placeholder={isSplit ? "10" : "0.00"}
+                        placeholder={isSplit ? "3" : "0.00"}
                         value={quantity}
                         onChange={e => setQuantity(e.target.value)}
                         required

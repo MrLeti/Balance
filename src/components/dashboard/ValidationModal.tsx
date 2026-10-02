@@ -449,11 +449,12 @@ export default function ValidationModal({ items, initialType = "Egreso", initial
 
         const typeCats = dynamicCategories.filter(c => c.type === tipo);
         if (typeCats.length > 0) {
-            const catNames = typeCats.map(c => c.name);
-            const foundCat = typeCats.find(c => c.name === currentCategory);
+            const catNames = Array.from(new Set(typeCats.map(c => c.name.trim()))).filter(Boolean);
+            const matchingCats = typeCats.filter(c => c.name.trim().toLowerCase() === currentCategory.trim().toLowerCase());
+            const subcategories = Array.from(new Set(matchingCats.flatMap(c => c.subcategories || []).map(s => String(s).trim()))).filter(Boolean);
             return {
                 categories: catNames,
-                subcategories: foundCat ? foundCat.subcategories : []
+                subcategories
             };
         }
 

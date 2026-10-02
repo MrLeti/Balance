@@ -11,7 +11,7 @@ export interface ColumnDef {
   header: string;
   editable?: boolean;
   type?: 'text' | 'number' | 'date' | 'select' | 'readonly';
-  options?: string[];
+  options?: string[] | ((row: Record<string, unknown>) => string[]);
   width?: string;
   render?: (value: unknown, row: Record<string, unknown>) => React.ReactNode;
   formatDisplay?: (value: unknown) => string;
@@ -509,22 +509,33 @@ export default function EditableTable(props: EditableTableProps) {
       return (
         <div className={styles.inlineEditorContainer} onClick={(e) => e.stopPropagation()}>
           <div className={styles.editorInputWrapper}>
-            {col.type === 'select' && col.options ? (
-              <select
-                ref={inputRef as React.RefObject<HTMLSelectElement>}
-                className={styles.cellInput}
-                value={cellDraft}
-                autoFocus
-                onChange={(e) => setCellDraft(e.target.value)}
-                onKeyDown={(e) => handleInputKeyDown(e, rowId, col, value)}
-              >
-                {col.options.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            ) : (
+            {col.type === 'select' ? (() => {
+              const resolvedOptions = col.options
+                ? (typeof col.options === 'function' ? col.options(row) : col.options)
+                : [];
+              return (
+                <select
+                  ref={inputRef as React.RefObject<HTMLSelectElement>}
+                  className={styles.cellInput}
+                  value={cellDraft}
+                  autoFocus
+                  onChange={(e) => setCellDraft(e.target.value)}
+                  onKeyDown={(e) => handleInputKeyDown(e, rowId, col, value)}
+                >
+                  {cellDraft && !resolvedOptions.includes(cellDraft) && (
+                    <option value={cellDraft}>{cellDraft}</option>
+                  )}
+                  {!cellDraft && (
+                    <option value="">- Seleccionar -</option>
+                  )}
+                  {resolvedOptions.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              );
+            })() : (
               <input
                 ref={inputRef as React.RefObject<HTMLInputElement>}
                 className={styles.cellInput}

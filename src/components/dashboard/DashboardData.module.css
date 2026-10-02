@@ -46,11 +46,21 @@
     flex-shrink: 0;
 }
 
+.subtotalRow {
+    border-top: 1px dashed var(--glass-border);
+    padding-top: 8px;
+    padding-bottom: 8px;
+    margin-top: 2px;
+    margin-bottom: 4px;
+    font-size: clamp(1rem, 3.5vw, 1.15rem);
+    font-weight: 600;
+}
+
 .totalRow {
     border-top: 1px solid var(--glass-border);
     padding-top: 12px;
     margin-top: 4px;
-    font-size: 1.5rem;
+    font-size: clamp(1.2rem, 4vw, 1.5rem);
     font-weight: 700;
 }
 
@@ -60,6 +70,12 @@
 
 .dangerText {
     color: var(--danger-color);
+}
+
+.percentageText {
+    font-size: 0.85em;
+    margin-left: 6px;
+    font-weight: 500;
 }
 
 .trend {

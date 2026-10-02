@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseSafeAmount, parseArithmeticExpression, roundMoney, isValidAmount, formatAutoDateInput } from "./format";
+import { parseSafeAmount, parseArithmeticExpression, roundMoney, isValidAmount, formatAutoDateInput, formatPercentOfBase } from "./format";
 
 
 describe("parseSafeAmount", () => {
@@ -131,6 +131,44 @@ describe("isValidAmount", () => {
         expect(isValidAmount(-150.5, true)).toBe(true);
         expect(isValidAmount("-500", true)).toBe(true);
         expect(isValidAmount(0, true)).toBe(false);
+    });
+});
+
+describe("formatPercentOfBase", () => {
+    it("formats 100% when amount equals base", () => {
+        expect(formatPercentOfBase(500000, 500000)).toBe("100%");
+        expect(formatPercentOfBase(300000, 300000)).toBe("100%");
+    });
+
+    it("formats whole number percentages cleanly without unnecessary decimals", () => {
+        expect(formatPercentOfBase(200000, 500000)).toBe("40%");
+        expect(formatPercentOfBase(50000, 500000)).toBe("10%");
+        expect(formatPercentOfBase(300000, 500000)).toBe("60%");
+    });
+
+    it("formats fractional percentages with 1 decimal digit", () => {
+        expect(formatPercentOfBase(70000, 300000)).toBe("23.3%");
+        expect(formatPercentOfBase(55000, 300000)).toBe("18.3%");
+        expect(formatPercentOfBase(1000, 3000)).toBe("33.3%");
+    });
+
+    it("handles zero and safe fallbacks when base <= 0", () => {
+        expect(formatPercentOfBase(0, 500000)).toBe("0%");
+        expect(formatPercentOfBase(50000, 0)).toBe("0%");
+        expect(formatPercentOfBase(50000, -100)).toBe("0%");
+    });
+
+    it("handles non-finite inputs safely (NaN, Infinity)", () => {
+        expect(formatPercentOfBase(NaN, 500000)).toBe("0%");
+        expect(formatPercentOfBase(50000, NaN)).toBe("0%");
+        expect(formatPercentOfBase(Infinity, 500000)).toBe("0%");
+        expect(formatPercentOfBase(50000, Infinity)).toBe("0%");
+        expect(formatPercentOfBase(-Infinity, 500000)).toBe("0%");
+    });
+
+    it("handles negative amounts accurately", () => {
+        expect(formatPercentOfBase(-50000, 200000)).toBe("-25%");
+        expect(formatPercentOfBase(-1000, 3000)).toBe("-33.3%");
     });
 });
 
