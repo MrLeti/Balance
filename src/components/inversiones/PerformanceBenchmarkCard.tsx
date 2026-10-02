@@ -7,6 +7,7 @@ import {
     InvestmentTransaction,
     HistoricalPriceMap,
     getPortfolioHistory,
+    PortfolioHistoryPoint,
 } from "@/lib/utils/investments";
 import styles from "./PerformanceBenchmarkCard.module.css";
 

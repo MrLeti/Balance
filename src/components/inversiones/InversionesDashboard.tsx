@@ -113,7 +113,7 @@ export default function InversionesDashboard() {
     const [filterCartera, setFilterCartera] = useState<string>("all");
 
     // Line charts date range state
-    const [lineChartRange, setLineChartRange] = useState<"all" | "1M" | "3M" | "6M" | "YTD" | "1Y" | "custom">("all");
+    const [lineChartRange, setLineChartRange] = useState<"all" | "1m" | "3m" | "6m" | "ytd" | "1y" | "custom">("all");
     const [customDateFrom, setCustomDateFrom] = useState<string>("");
     const [customDateTo, setCustomDateTo] = useState<string>("");
 
